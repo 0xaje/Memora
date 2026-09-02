@@ -31,27 +31,32 @@ class SibylClientManager:
         self.tier = tier or settings.SIBYL_TIER
         self._client: Optional[MemoryClient] = None
 
-    def get_client(self) -> MemoryClient:
+    def get_client(self, tenant_id: Optional[str] = None) -> MemoryClient:
         """
         Returns an initialized MemoryClient instance.
         Ensures the target directory exists and the schema is validated.
+        If a custom tenant_id is provided, sets it on the client for partition isolation.
         """
+        target_tenant = tenant_id or self.tenant_id
         if self._client is None:
             try:
                 db_file = Path(self.db_path)
                 db_file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
 
                 logger.info("Initializing Sibyl MemoryClient at: %s (tenant: %s, tier: %s)",
-                            self.db_path, self.tenant_id, self.tier)
+                            self.db_path, target_tenant, self.tier)
 
                 self._client = MemoryClient.local(
                     path=self.db_path,
-                    tenant_id=self.tenant_id,
+                    tenant_id=target_tenant,
                     tier=self.tier
                 )
             except Exception as e:
                 logger.error("Failed to initialize Sibyl MemoryClient at %s: %s", self.db_path, e)
                 raise SibylServiceError(f"Sibyl Memory initialization failed: {e}") from e
+        else:
+            if target_tenant != self._client.get_tenant():
+                self._client.set_tenant(target_tenant)
 
         return self._client
 

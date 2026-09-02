@@ -51,12 +51,19 @@ class DecisionEngine:
                 final_risk = RiskLevel.CRITICAL
 
             # Recommendation escalation logic
-            if baseline.recommendation == RecommendationType.MONITOR_AND_VERIFY:
-                # Monitoring failed previously, escalate to supervisor or dispatch patrol
+            if "package" in facts.summary.lower() or "suspicious_package" in facts.incident_type:
+                # Recurring unresolved package hazard requires area lockdown and EOD
+                recommendation = RecommendationType.LOCKDOWN_AREA
+                escalation_reason = (
+                    f"Recurrence of unattended/suspicious package at {facts.location} with unresolved prior hazard. "
+                    f"Standard patrol verification is insufficient; immediate area lockdown required."
+                )
+            elif baseline.recommendation == RecommendationType.MONITOR_AND_VERIFY:
+                # Monitoring failed previously, escalate to supervisor
                 recommendation = RecommendationType.ESCALATE_TO_SUPERVISOR
                 escalation_reason = (
                     f"Recurrence detected at {facts.location} with unresolved prior incident. "
-                    f"Prior low-level action failed to eliminate the hazard."
+                    f"Prior low-level action ({', '.join(pattern.failed_prior_recommendations) or 'MONITOR_AND_VERIFY'}) failed to eliminate the hazard."
                 )
             elif baseline.recommendation == RecommendationType.DISPATCH_PATROL:
                 recommendation = RecommendationType.ESCALATE_TO_SUPERVISOR
@@ -116,9 +123,13 @@ class DecisionEngine:
 
         if assessment.changed:
             unresolved_detail = f"related unresolved case(s) [{', '.join(pattern.unresolved_incident_ids)}]" if pattern.unresolved_incident_ids else "open risk history"
+            mitigation_context = (
+                f"Prior action ({', '.join(pattern.failed_prior_recommendations) or 'initial protocol'}) proved insufficient to eliminate the hazard."
+                if pattern.has_prior_failed_outcome else "Prior operational lesson and unresolved indicators mandate intervention."
+            )
             why_decision_changed = (
                 f"Baseline evaluation without memory produced {baseline.risk.value} risk and '{baseline.recommendation.value}'. "
-                f"However, Sibyl Memory revealed {unresolved_detail} and demonstrated that prior monitoring did not resolve the threat. "
+                f"However, Sibyl Memory revealed {unresolved_detail}. {mitigation_context} "
                 f"Consequently, operational risk was escalated to {assessment.risk.value} and recommendation changed to '{assessment.recommendation.value}'."
             )
         else:

@@ -38,7 +38,8 @@ from memora.memory.models import (
     DecisionMemory,
     OutcomeMemory,
     UnresolvedRiskMemory,
-    OperationalLesson
+    OperationalLesson,
+    MemoryCategory
 )
 from memora.memory.client import sibyl_manager, SibylClientManager
 
@@ -88,10 +89,12 @@ class IncidentService:
 
         # 3. Retrieve relevant Sibyl Memory (if memory_enabled)
         if request.memory_enabled:
-            logger.info("Querying Sibyl Memory for location: '%s'...", facts.location)
+            logger.info("Querying Sibyl Memory for location: '%s' (tenant: %s)...",
+                        facts.location, request.tenant_id or "default")
             memory_results: MemoryRetrievalResult = self.retriever.retrieve_context(
                 location=facts.location,
-                search_terms=facts.entities_involved
+                search_terms=facts.entities_involved,
+                tenant_id=request.tenant_id
             )
         else:
             logger.info("Memory retrieval bypassed (baseline mode requested for deletion test).")
@@ -135,7 +138,7 @@ class IncidentService:
                     entities_involved=facts.entities_involved,
                     status="unresolved"
                 )
-                self.writer.write_incident(inc_entity)
+                self.writer.write_incident(inc_entity, tenant_id=request.tenant_id)
 
                 # Write decision entity
                 decision_entity = DecisionMemory(
@@ -147,7 +150,7 @@ class IncidentService:
                     rationale=explanation.why_decision_changed,
                     memory_informed=memory_assessment.changed
                 )
-                self.writer.write_decision(decision_entity)
+                self.writer.write_decision(decision_entity, tenant_id=request.tenant_id)
             except Exception as e:
                 logger.error("Failed persisting operational knowledge to Sibyl: %s", e)
                 # Re-raise to fail honestly per constitution
@@ -191,20 +194,19 @@ class IncidentService:
         )
 
         # Write outcome to Sibyl
-        self.writer.write_outcome(outcome)
+        self.writer.write_outcome(outcome, tenant_id=request.tenant_id)
 
-        # If unresolved, write or update an UnresolvedRiskMemory
+        client = self.manager.get_client(tenant_id=request.tenant_id)
+        location = "Perimeter Facility"
+        try:
+            parent_inc = client.get_entity("incidents", request.incident_id)
+            if parent_inc and "body" in parent_inc:
+                location = parent_inc["body"].get("location", location)
+        except Exception as e:
+            logger.warning("Could not fetch parent incident %s for location: %s", request.incident_id, e)
+
         if not request.is_resolved:
-            # Query incident directly by ID from Sibyl to obtain exact location
-            client = self.manager.get_client()
-            location = "Perimeter Facility"
-            try:
-                parent_inc = client.get_entity("incidents", request.incident_id)
-                if parent_inc and "body" in parent_inc:
-                    location = parent_inc["body"].get("location", location)
-            except Exception as e:
-                logger.warning("Could not fetch parent incident %s for location: %s", request.incident_id, e)
-
+            # Case 1: Unresolved outcome -> persist or escalate UnresolvedRisk & OperationalLesson
             risk_entity = UnresolvedRiskMemory(
                 risk_id=f"RISK-{request.incident_id}",
                 incident_id=request.incident_id,
@@ -212,22 +214,85 @@ class IncidentService:
                 hazard_description=f"Unresolved: {request.observed_result} (Reason: {request.unresolved_reason or 'Ongoing threat'})",
                 severity="HIGH"
             )
-            self.writer.write_unresolved_risk(risk_entity)
+            self.writer.write_unresolved_risk(risk_entity, tenant_id=request.tenant_id)
 
-            # Synthesize operational lesson
+            # Check if an operational lesson already exists for this location to dynamically refine it
+            existing_lesson = None
+            try:
+                lesson_hits = client.search_entities(query=location, category=MemoryCategory.OPERATIONAL_LESSONS.value)
+                if lesson_hits:
+                    existing_lesson = lesson_hits[0].get("body", {})
+            except Exception as find_err:
+                logger.debug("No existing lesson found for location %s: %s", location, find_err)
+
+            lesson_id = existing_lesson.get("lesson_id", f"LES-{request.incident_id}") if existing_lesson else f"LES-{request.incident_id}"
+            recurrence = (existing_lesson.get("recurrence_count", 1) + 1) if existing_lesson else 1
+
             lesson_rule = request.operational_lesson or (
                 f"Action '{request.action_taken}' failed to resolve recurring activity related to {request.incident_id}. "
-                f"Escalation required on subsequent observations."
+                f"Escalation required on subsequent observations (recurrence count: {recurrence})."
             )
+
             lesson_entity = OperationalLesson(
-                lesson_id=f"LES-{request.incident_id}",
+                lesson_id=lesson_id,
                 incident_id=request.incident_id,
                 location=location,
                 rule_or_insight=lesson_rule,
                 failed_prior_action=request.action_taken,
-                escalation_recommendation=RecommendationType.ESCALATE_TO_SUPERVISOR.value
+                escalation_recommendation=RecommendationType.ESCALATE_TO_SUPERVISOR.value,
+                recurrence_count=recurrence
             )
-            self.writer.write_operational_lesson(lesson_entity)
+            self.writer.write_operational_lesson(lesson_entity, tenant_id=request.tenant_id)
+
+        else:
+            # Case 2: Resolved outcome -> close active risk and record what successfully resolved the threat
+            try:
+                # Mark unresolved risk as mitigated/closed if exists
+                risk_id = f"RISK-{request.incident_id}"
+                existing_risk = client.get_entity(MemoryCategory.UNRESOLVED_RISKS.value, risk_id)
+                if existing_risk:
+                    risk_body = existing_risk.get("body", {}).copy()
+                    risk_body["status"] = "mitigated"
+                    risk_body["mitigation_action"] = request.action_taken
+                    client.set_entity(
+                        category=MemoryCategory.UNRESOLVED_RISKS.value,
+                        name=risk_id,
+                        body=risk_body,
+                        status="mitigated"
+                    )
+            except Exception as risk_close_err:
+                logger.debug("No active risk entity found to close: %s", risk_close_err)
+
+            # Update or write operational lesson documenting the confirmed successful mitigation
+            try:
+                lesson_hits = client.search_entities(query=location, category=MemoryCategory.OPERATIONAL_LESSONS.value)
+                if lesson_hits:
+                    top_lesson = lesson_hits[0]
+                    body = top_lesson.get("body", {}).copy()
+                    body["successful_mitigation"] = request.action_taken
+                    body["rule_or_insight"] = (
+                        f"{body.get('rule_or_insight', '')} Confirmed resolution: '{request.action_taken}' "
+                        f"successfully resolved the incident."
+                    )
+                    client.set_entity(
+                        category=MemoryCategory.OPERATIONAL_LESSONS.value,
+                        name=top_lesson["name"],
+                        body=body,
+                        status="verified"
+                    )
+                else:
+                    # Create new lesson noting the effective procedure
+                    new_lesson = OperationalLesson(
+                        lesson_id=f"LES-{request.incident_id}",
+                        incident_id=request.incident_id,
+                        location=location,
+                        rule_or_insight=f"Action '{request.action_taken}' successfully resolved incident {request.incident_id}.",
+                        successful_mitigation=request.action_taken,
+                        escalation_recommendation=request.action_taken
+                    )
+                    self.writer.write_operational_lesson(new_lesson, tenant_id=request.tenant_id)
+            except Exception as lesson_update_err:
+                logger.warning("Could not update operational lesson on resolution: %s", lesson_update_err)
 
         return {
             "status": "success",

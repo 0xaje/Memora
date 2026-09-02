@@ -31,6 +31,7 @@ class IncidentCreate(BaseModel):
     incident_type: Optional[str] = Field(None, description="Category of incident e.g. suspicious_vehicle")
     reported_by: Optional[str] = Field("field_operator", description="Reporting entity or sensor")
     session_id: Optional[str] = Field(None, description="Client session identifier")
+    tenant_id: Optional[str] = Field(None, description="Tenant UUID for organization isolation")
     memory_enabled: bool = Field(True, description="Toggle for load-bearing memory retrieval vs baseline")
 
     @field_validator("raw_text")
@@ -60,6 +61,7 @@ class OutcomeCreate(BaseModel):
     is_resolved: bool = Field(..., description="Whether the incident was successfully resolved")
     unresolved_reason: Optional[str] = Field(None, description="Reason if unresolved")
     operational_lesson: Optional[str] = Field(None, description="Specific organizational lesson learned")
+    tenant_id: Optional[str] = Field(None, description="Tenant UUID for isolation")
 
 
 class SessionContext(BaseModel):

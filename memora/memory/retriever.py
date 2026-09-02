@@ -76,17 +76,23 @@ class MemoryRetriever:
     def __init__(self, client_manager: Optional[SibylClientManager] = None):
         self.manager = client_manager or SibylClientManager()
 
-    def _get_client(self) -> MemoryClient:
-        return self.manager.get_client()
+    def _get_client(self, tenant_id: Optional[str] = None) -> MemoryClient:
+        return self.manager.get_client(tenant_id=tenant_id)
 
-    def retrieve_context(self, location: str, search_terms: Optional[List[str]] = None) -> MemoryRetrievalResult:
+    def retrieve_context(
+        self,
+        location: str,
+        search_terms: Optional[List[str]] = None,
+        tenant_id: Optional[str] = None
+    ) -> MemoryRetrievalResult:
         """
         Retrieves all relevant historical memories from Sibyl for a specific location and terms.
         Queries each category (incidents, unresolved_risks, decisions, outcomes, operational_lessons).
         """
-        client = self._get_client()
+        client = self._get_client(tenant_id=tenant_id)
         query = location.strip()
-        logger.info("Querying Sibyl Memory for location: '%s', additional terms: %s", location, search_terms)
+        logger.info("Querying Sibyl Memory for location: '%s', tenant: %s, additional terms: %s",
+                    location, tenant_id or self.manager.tenant_id, search_terms)
 
         related_incidents: List[Dict[str, Any]] = []
         unresolved_risks: List[Dict[str, Any]] = []
