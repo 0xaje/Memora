@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     HOST: str = "0.0.0.0"
     PORT: int = 8000
+    CORS_ORIGINS: str = Field(
+        default="http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173",
+        description="Comma-separated allowed origins for frontend development"
+    )
 
     # Real Sibyl Memory configuration
     SIBYL_DB_PATH: str = Field(

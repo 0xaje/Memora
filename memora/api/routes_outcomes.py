@@ -4,8 +4,7 @@ Exposes endpoints to record follow-up results and store operational lessons.
 """
 
 from fastapi import APIRouter, HTTPException, Depends
-from typing import Dict, Any
-from memora.incidents.models import OutcomeCreate
+from memora.incidents.models import OutcomeCreate, OutcomeResponse
 from memora.incidents.service import IncidentService
 from memora.memory.client import SibylServiceError
 
@@ -16,7 +15,7 @@ def get_incident_service() -> IncidentService:
     return IncidentService()
 
 
-@router.post("", response_model=Dict[str, Any])
+@router.post("", response_model=OutcomeResponse)
 def record_outcome(
     payload: OutcomeCreate,
     service: IncidentService = Depends(get_incident_service)
@@ -31,7 +30,16 @@ def record_outcome(
     except SibylServiceError as sse:
         raise HTTPException(
             status_code=503,
-            detail=f"Sibyl Memory storage failure: {sse}"
+            detail={
+                "code": "SIBYL_UNAVAILABLE",
+                "message": f"Sibyl Memory storage failure: {sse}"
+            }
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "INTERNAL_SERVER_ERROR",
+                "message": str(e)
+            }
+        )

@@ -100,11 +100,96 @@ class DecisionExplanation(BaseModel):
     why_decision_changed: str
 
 
+class DecisionChangeDetails(BaseModel):
+    """Explicit diff between baseline assessment and final memory-informed decision."""
+    from_risk: RiskLevel
+    to_risk: RiskLevel
+    from_recommendation: RecommendationType
+    to_recommendation: RecommendationType
+
+
+class PatternInferenceSummary(BaseModel):
+    """Explicit structural pattern inferred from Sibyl Memory."""
+    is_recurrent: bool = False
+    recurrence_count: int = 0
+    unresolved_history: bool = False
+    unresolved_incident_ids: List[str] = Field(default_factory=list)
+    has_prior_failed_outcome: bool = False
+    failed_prior_actions: List[str] = Field(default_factory=list)
+    verified_mitigations: List[str] = Field(default_factory=list)
+    applicable_lessons: List[str] = Field(default_factory=list)
+    summary: str = ""
+
+
+class ProvenanceSummary(BaseModel):
+    """Audit provenance cleanly categorizing facts, retrieval, inference, and rationale."""
+    facts: str
+    retrieval: str
+    inference: str
+    decision_shift: str
+
+
+class MemoryRecordUI(BaseModel):
+    """UI-safe sanitized representation of a historical memory record."""
+    category: str
+    id: str
+    location: str
+    summary: str
+    status: str
+    timestamp: Optional[str] = None
+    action_taken: Optional[str] = None
+    is_resolved: Optional[bool] = None
+    rule_or_insight: Optional[str] = None
+    recurrence_count: Optional[int] = None
+    successful_mitigation: Optional[str] = None
+
+
+class MemorySummary(BaseModel):
+    """UI-safe structured summary of retrieved historical memories."""
+    found: bool
+    count: int
+    records: List[MemoryRecordUI] = Field(default_factory=list)
+
+
 class IncidentAnalysisResult(BaseModel):
-    """Full auditable response from Memora."""
+    """Full auditable response from Memora for frontend and operational consumers."""
     incident: IncidentFacts
     session: SessionContext
     baseline_assessment: BaselineAssessment
     memory_assessment: MemoryAssessment
     memory_influence: MemoryInfluence
     explanation: DecisionExplanation
+
+    # Direct frontend convenience fields
+    baseline: BaselineAssessment
+    decision: MemoryAssessment
+    decision_changed: bool
+    decision_change: Optional[DecisionChangeDetails] = None
+    memory: MemorySummary
+    inference: PatternInferenceSummary
+    why_decision_changed: str
+    provenance: ProvenanceSummary
+
+
+class OutcomeResponse(BaseModel):
+    """UI-safe response returned upon recording an operational outcome."""
+    status: str
+    outcome_id: str
+    incident_id: str
+    is_resolved: bool
+    action_taken: str
+    observed_result: str
+    unresolved_reason: Optional[str] = None
+    lesson_id: Optional[str] = None
+    lesson_rule: Optional[str] = None
+    recurrence_count: Optional[int] = None
+    successful_mitigation: Optional[str] = None
+    message: str
+
+    def __getitem__(self, item: str) -> Any:
+        """Enables dictionary-style indexing for backwards compatibility with tests and callers."""
+        return getattr(self, item)
+
+    def get(self, item: str, default: Any = None) -> Any:
+        """Enables dict.get-style access for backwards compatibility."""
+        return getattr(self, item, default)

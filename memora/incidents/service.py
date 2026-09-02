@@ -24,6 +24,12 @@ from memora.incidents.models import (
     MemoryInfluence,
     DecisionExplanation,
     IncidentAnalysisResult,
+    DecisionChangeDetails,
+    PatternInferenceSummary,
+    ProvenanceSummary,
+    MemoryRecordUI,
+    MemorySummary,
+    OutcomeResponse,
     RiskLevel,
     RecommendationType
 )
@@ -48,13 +54,13 @@ logger = logging.getLogger("memora.incidents.service")
 
 class IncidentService:
     """
-    Main domain service coordinating incident analysis, outcomes, and Sibyl persistence.
+    Coordinates the core operational memory pipeline.
     """
 
     def __init__(self, client_manager: Optional[SibylClientManager] = None):
         self.manager = client_manager or sibyl_manager
-        self.writer = MemoryWriter(self.manager)
-        self.retriever = MemoryRetriever(self.manager)
+        self.writer = MemoryWriter(client_manager=self.manager)
+        self.retriever = MemoryRetriever(client_manager=self.manager)
         self.extractor = FactExtractor()
         self.baseline_engine = BaselineEngine()
         self.comparator = HistoricalComparator()
@@ -109,12 +115,12 @@ class IncidentService:
                 total_hits=0
             )
 
-        # 4. Compare current incident with retrieved history
+        # 4. Compare current observations with historical memory
         pattern = self.comparator.compare(facts, memory_results)
         logger.info("Historical pattern: is_recurrent=%s (count=%d), unresolved=%s",
                     pattern.is_recurrent, pattern.recurrent_count, pattern.has_unresolved_prior_incident)
 
-        # 5. Generate memory-informed decision & auditable explanation
+        # 5. Make memory-informed decision
         memory_assessment, explanation = self.decision_engine.decide(
             facts=facts,
             baseline=baseline,
@@ -122,9 +128,10 @@ class IncidentService:
             pattern=pattern
         )
         logger.info("Final memory assessment: Risk=%s, Rec=%s, Changed=%s",
-                    memory_assessment.risk.value, memory_assessment.recommendation.value, memory_assessment.changed)
+                    memory_assessment.risk.value, memory_assessment.recommendation.value,
+                    memory_assessment.changed)
 
-        # 6. Persist new operational knowledge to Sibyl Memory (if memory_enabled)
+        # 6. Persist incident observation and decision to Sibyl Memory (if memory enabled)
         if request.memory_enabled:
             try:
                 # Write incident entity
@@ -166,16 +173,106 @@ class IncidentService:
             retrieval_count=memory_results.total_hits
         )
 
+        # 8. Build explicit UI-safe memory summary
+        ui_records: List[MemoryRecordUI] = []
+        for inc in memory_results.related_incidents:
+            ui_records.append(MemoryRecordUI(
+                category="incidents",
+                id=inc.get("incident_id") or inc.get("id") or "UNKNOWN",
+                location=inc.get("location", facts.location),
+                summary=inc.get("summary") or inc.get("title") or "Historical incident record",
+                status=inc.get("status", "unresolved"),
+                timestamp=inc.get("timestamp")
+            ))
+        for risk in memory_results.unresolved_risks:
+            ui_records.append(MemoryRecordUI(
+                category="unresolved_risks",
+                id=risk.get("risk_id") or "UNKNOWN",
+                location=risk.get("location", facts.location),
+                summary=risk.get("hazard_description") or "Active unresolved hazard",
+                status=risk.get("status", "open"),
+                timestamp=risk.get("last_updated") or risk.get("first_observed")
+            ))
+        for les in memory_results.operational_lessons:
+            ui_records.append(MemoryRecordUI(
+                category="operational_lessons",
+                id=les.get("lesson_id") or "UNKNOWN",
+                location=les.get("location", facts.location),
+                summary=les.get("rule_or_insight") or "Operational lesson",
+                status="active",
+                action_taken=les.get("failed_prior_action"),
+                rule_or_insight=les.get("rule_or_insight"),
+                recurrence_count=les.get("recurrence_count", 1),
+                successful_mitigation=les.get("successful_mitigation"),
+                timestamp=les.get("updated_at") or les.get("created_at")
+            ))
+        for out in memory_results.previous_outcomes:
+            ui_records.append(MemoryRecordUI(
+                category="outcomes",
+                id=out.get("outcome_id") or "UNKNOWN",
+                location=facts.location,
+                summary=f"Action '{out.get('action_taken')}': {out.get('observed_result')}",
+                status="resolved" if out.get("is_resolved") else "unresolved",
+                action_taken=out.get("action_taken"),
+                is_resolved=out.get("is_resolved"),
+                timestamp=out.get("timestamp")
+            ))
+
+        memory_summary = MemorySummary(
+            found=memory_results.total_hits > 0,
+            count=memory_results.total_hits,
+            records=ui_records
+        )
+
+        # 9. Build explicit pattern inference summary
+        inference_summary = PatternInferenceSummary(
+            is_recurrent=pattern.is_recurrent,
+            recurrence_count=pattern.recurrent_count,
+            unresolved_history=pattern.has_unresolved_prior_incident,
+            unresolved_incident_ids=pattern.unresolved_incident_ids,
+            has_prior_failed_outcome=pattern.has_prior_failed_outcome,
+            failed_prior_actions=pattern.failed_prior_recommendations,
+            verified_mitigations=pattern.verified_mitigations,
+            applicable_lessons=pattern.applicable_lessons,
+            summary=pattern.summary
+        )
+
+        # 10. Build decision change details
+        decision_change = None
+        if memory_assessment.changed:
+            decision_change = DecisionChangeDetails(
+                from_risk=baseline.risk,
+                to_risk=memory_assessment.risk,
+                from_recommendation=baseline.recommendation,
+                to_recommendation=memory_assessment.recommendation
+            )
+
+        # 11. Build provenance summary
+        provenance = ProvenanceSummary(
+            facts=explanation.what_happened,
+            retrieval=explanation.what_was_retrieved,
+            inference=explanation.what_pattern_was_inferred,
+            decision_shift=explanation.why_decision_changed
+        )
+
         return IncidentAnalysisResult(
             incident=facts,
             session=SessionContext(id=sid, is_fresh=is_fresh_session),
             baseline_assessment=baseline,
             memory_assessment=memory_assessment,
             memory_influence=memory_influence,
-            explanation=explanation
+            explanation=explanation,
+            baseline=baseline,
+            decision=memory_assessment,
+            decision_changed=memory_assessment.changed,
+            decision_change=decision_change,
+            memory=memory_summary,
+            inference=inference_summary,
+            why_decision_changed=explanation.why_decision_changed,
+            provenance=provenance
         )
 
-    def record_outcome(self, request: OutcomeCreate) -> Dict[str, Any]:
+    def record_outcome(self, request: OutcomeCreate) -> OutcomeResponse:
         """
         Records the outcome of an incident and writes operational learnings to Sibyl.
         """
@@ -205,6 +302,11 @@ class IncidentService:
         except Exception as e:
             logger.warning("Could not fetch parent incident %s for location: %s", request.incident_id, e)
 
+        lesson_id = None
+        lesson_rule = None
+        recurrence_count = None
+        successful_mitigation = None
+
         if not request.is_resolved:
             # Case 1: Unresolved outcome -> persist or escalate UnresolvedRisk & OperationalLesson
             risk_entity = UnresolvedRiskMemory(
@@ -226,11 +328,11 @@ class IncidentService:
                 logger.debug("No existing lesson found for location %s: %s", location, find_err)
 
             lesson_id = existing_lesson.get("lesson_id", f"LES-{request.incident_id}") if existing_lesson else f"LES-{request.incident_id}"
-            recurrence = (existing_lesson.get("recurrence_count", 1) + 1) if existing_lesson else 1
+            recurrence_count = (existing_lesson.get("recurrence_count", 1) + 1) if existing_lesson else 1
 
             lesson_rule = request.operational_lesson or (
                 f"Action '{request.action_taken}' failed to resolve recurring activity related to {request.incident_id}. "
-                f"Escalation required on subsequent observations (recurrence count: {recurrence})."
+                f"Escalation required on subsequent observations (recurrence count: {recurrence_count})."
             )
 
             lesson_entity = OperationalLesson(
@@ -240,12 +342,13 @@ class IncidentService:
                 rule_or_insight=lesson_rule,
                 failed_prior_action=request.action_taken,
                 escalation_recommendation=RecommendationType.ESCALATE_TO_SUPERVISOR.value,
-                recurrence_count=recurrence
+                recurrence_count=recurrence_count
             )
             self.writer.write_operational_lesson(lesson_entity, tenant_id=request.tenant_id)
 
         else:
             # Case 2: Resolved outcome -> close active risk and record what successfully resolved the threat
+            successful_mitigation = request.action_taken
             try:
                 # Mark unresolved risk as mitigated/closed if exists
                 risk_id = f"RISK-{request.incident_id}"
@@ -268,12 +371,14 @@ class IncidentService:
                 lesson_hits = client.search_entities(query=location, category=MemoryCategory.OPERATIONAL_LESSONS.value)
                 if lesson_hits:
                     top_lesson = lesson_hits[0]
+                    lesson_id = top_lesson.get("name") or top_lesson.get("id")
                     body = top_lesson.get("body", {}).copy()
                     body["successful_mitigation"] = request.action_taken
-                    body["rule_or_insight"] = (
+                    lesson_rule = (
                         f"{body.get('rule_or_insight', '')} Confirmed resolution: '{request.action_taken}' "
                         f"successfully resolved the incident."
                     )
+                    body["rule_or_insight"] = lesson_rule
                     client.set_entity(
                         category=MemoryCategory.OPERATIONAL_LESSONS.value,
                         name=top_lesson["name"],
@@ -282,11 +387,13 @@ class IncidentService:
                     )
                 else:
                     # Create new lesson noting the effective procedure
+                    lesson_id = f"LES-{request.incident_id}"
+                    lesson_rule = f"Action '{request.action_taken}' successfully resolved incident {request.incident_id}."
                     new_lesson = OperationalLesson(
-                        lesson_id=f"LES-{request.incident_id}",
+                        lesson_id=lesson_id,
                         incident_id=request.incident_id,
                         location=location,
-                        rule_or_insight=f"Action '{request.action_taken}' successfully resolved incident {request.incident_id}.",
+                        rule_or_insight=lesson_rule,
                         successful_mitigation=request.action_taken,
                         escalation_recommendation=request.action_taken
                     )
@@ -294,10 +401,17 @@ class IncidentService:
             except Exception as lesson_update_err:
                 logger.warning("Could not update operational lesson on resolution: %s", lesson_update_err)
 
-        return {
-            "status": "success",
-            "outcome_id": outcome_id,
-            "incident_id": request.incident_id,
-            "is_resolved": request.is_resolved,
-            "message": "Outcome and operational learning persisted to Sibyl Memory."
-        }
+        return OutcomeResponse(
+            status="success",
+            outcome_id=outcome_id,
+            incident_id=request.incident_id,
+            is_resolved=request.is_resolved,
+            action_taken=request.action_taken,
+            observed_result=request.observed_result,
+            unresolved_reason=request.unresolved_reason,
+            lesson_id=lesson_id,
+            lesson_rule=lesson_rule,
+            recurrence_count=recurrence_count,
+            successful_mitigation=successful_mitigation,
+            message="Outcome and operational learning persisted to Sibyl Memory."
+        )

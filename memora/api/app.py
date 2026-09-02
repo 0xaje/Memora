@@ -47,11 +47,21 @@ def create_app() -> FastAPI:
         lifespan=lifespan
     )
 
+    origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
+    if not origins or settings.APP_ENV == "development":
+        # Ensure local development hosts are always permitted
+        origins = list(set(origins + [
+            "http://localhost:3000",
+            "http://localhost:5173",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:5173"
+        ]))
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=origins,
         allow_credentials=True,
-        allow_methods=["*"],
+        allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["*"],
     )
 

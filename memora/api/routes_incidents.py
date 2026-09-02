@@ -31,7 +31,16 @@ def analyze_incident(
     except SibylServiceError as sse:
         raise HTTPException(
             status_code=503,
-            detail=f"Sibyl Memory unavailable or storage error: {sse}"
+            detail={
+                "code": "SIBYL_UNAVAILABLE",
+                "message": f"Sibyl Memory unavailable or storage error: {sse}"
+            }
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "INTERNAL_SERVER_ERROR",
+                "message": str(e)
+            }
+        )

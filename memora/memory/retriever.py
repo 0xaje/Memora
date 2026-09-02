@@ -168,12 +168,44 @@ class MemoryRetriever:
             logger.error("Sibyl retrieval failed for query '%s': %s", query, e)
             raise SibylServiceError(f"Sibyl Memory retrieval failed: {e}") from e
 
-    def search_all_tiers(self, query: str) -> List[Dict[str, Any]]:
-        """Cross-tier full-text search directly through Sibyl Memory."""
-        client = self._get_client()
+    def search_all_tiers(self, query: str, tenant_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Cross-tier full-text search directly through Sibyl Memory.
+        Sanitizes raw SQLite/Sibyl rows into UI-safe memory records and enforces tenant isolation.
+        """
+        clean_query = query.strip()
+        if not clean_query:
+            return []
+
+        client = self._get_client(tenant_id=tenant_id)
         try:
-            results = client.search(query=query)
-            return list(results)
+            results = client.search(query=clean_query)
+            sanitized: List[Dict[str, Any]] = []
+            for item in results:
+                tier = item.get("tier", "entity")
+                category = item.get("category", tier)
+                body = item.get("body", {}) if isinstance(item.get("body"), dict) else {}
+                key = item.get("key") or item.get("id") or "RECORD"
+                summary = (
+                    body.get("summary")
+                    or body.get("rule_or_insight")
+                    or body.get("hazard_description")
+                    or body.get("title")
+                    or body.get("observed_result")
+                    or item.get("snippet")
+                    or "Historical operational memory"
+                )
+                sanitized.append({
+                    "id": key,
+                    "tier": tier,
+                    "category": category,
+                    "location": body.get("location", "Perimeter Facility"),
+                    "summary": summary,
+                    "status": body.get("status", item.get("status", "recorded")),
+                    "timestamp": body.get("timestamp") or item.get("ts"),
+                    "score": item.get("rank")
+                })
+            return sanitized
         except Exception as e:
-            logger.error("Cross-tier search failed for '%s': %s", query, e)
+            logger.error("Cross-tier search failed for '%s': %s", clean_query, e)
             raise SibylServiceError(f"Sibyl search failed: {e}") from e
