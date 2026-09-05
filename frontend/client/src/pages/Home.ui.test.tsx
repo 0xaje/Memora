@@ -19,10 +19,10 @@ describe("Memora Home workspace UI states", () => {
     const html = renderToStaticMarkup(<Home />);
 
     expect(html).toContain("No incident analyzed yet");
-    expect(html).toContain("Historical memory unavailable");
+    expect(html).toContain("Historical memory not ready");
     expect(html).toContain("Awaiting analysis");
     expect(html).toContain("NOT CONNECTED");
-    expect(html).toContain("Historical memory unavailable");
+    expect(html).toContain("Historical memory not ready");
     expect(html).not.toContain("42");
   });
 

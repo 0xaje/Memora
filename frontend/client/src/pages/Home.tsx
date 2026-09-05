@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { memoraApi, MemoraApiError, type IncidentAnalysis, type MemorySearchResponse, type MemoryStatusResponse, type OutcomeResponse } from "@/lib/memora-api";
 import {
@@ -78,6 +78,30 @@ function apiMessage(error: unknown) {
   return error instanceof MemoraApiError ? error.message : "Memora backend request failed.";
 }
 
+export function getSibylStatusCopy(state: BackendState) {
+  if (state.status === "loading") return { label: "Sibyl checking", tone: "warn" as const };
+  if (state.status === "success") return { label: "Sibyl connected", tone: "ok" as const };
+  if (state.status === "unavailable") return { label: "Sibyl unavailable", tone: "warn" as const };
+  return { label: "Sibyl error", tone: "warn" as const };
+}
+
+export function getAnalysisStateCopy(state: BackendState) {
+  if (state.status === "loading") return "Waiting for Memora backend";
+  if (state.status === "unavailable") return state.message || "Unable to analyze incident";
+  if (state.status === "error") return state.message || "The backend did not return an analysis.";
+  if (state.status === "success") return "Backend analysis received";
+  return "No incident analyzed yet";
+}
+
+export function getMemorySearchStateLabel(state: BackendState, count?: number) {
+  if (state.status === "loading") return "SEARCHING";
+  if (state.status === "success") return `${count ?? 0} RESULTS`;
+  if (state.status === "empty") return "NO MATCHES";
+  if (state.status === "unavailable") return "SIBYL UNAVAILABLE";
+  if (state.status === "error") return "SEARCH ERROR";
+  return "GET /api/memory/search";
+}
+
 function SectionKicker({ children, label }: { children: React.ReactNode; label: string }) {
   return (
     <div className="section-kicker">
@@ -118,9 +142,10 @@ function StatusChip({ label, tone = "neutral" }: { label: string; tone?: "neutra
   return <span className={cn("status-chip", `status-chip--${tone}`)}><span className="status-chip__dot" />{label}</span>;
 }
 
-function Header({ active, onNavigate, onNewIncident }: { active: string; onNavigate: (id: string) => void; onNewIncident: () => void }) {
+function Header({ active, onNavigate, onNewIncident, memoryState }: { active: string; onNavigate: (id: string) => void; onNewIncident: () => void; memoryState: BackendState }) {
   const { user, loading, logout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+  const { label: sibylLabel, tone: sibylTone } = getSibylStatusCopy(memoryState);
   return (
     <header className="topbar">
       <div className="topbar__brand" onClick={() => onNavigate("workspace")} role="button" tabIndex={0} onKeyDown={(event) => event.key === "Enter" && onNavigate("workspace")}>
@@ -134,7 +159,7 @@ function Header({ active, onNavigate, onNewIncident }: { active: string; onNavig
         })}
       </nav>
       <div className="topbar__actions">
-        <StatusChip label="Sibyl unavailable" tone="warn" />
+        <StatusChip label={sibylLabel} tone={sibylTone} />
         <button className="header-icon-button" aria-label="Show system status"><Activity size={16} /></button>
         <button className="user-button" onClick={() => setMenuOpen((value) => !value)} aria-expanded={menuOpen}>
           <span className="avatar">{user?.name?.slice(0, 1).toUpperCase() || "O"}</span>
@@ -168,19 +193,23 @@ function Intake({ onNotice, onAnalysis }: { onNotice: (notice: Notice) => void; 
   const [incidentType, setIncidentType] = useState("");
   const [focused, setFocused] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const requestVersion = useRef(0);
   const canSubmit = description.trim().length >= 5;
   const submit = async () => {
     if (!canSubmit) {
       onNotice({ type: "error", message: "Describe the incident in at least five characters before requesting analysis." });
       return;
     }
+    const requestId = ++requestVersion.current;
     setSubmitting(true);
     onAnalysis({ status: "loading" });
     try {
       const analysis = await memoraApi.analyzeIncident({ raw_text: description.trim(), location: location.trim() || undefined, incident_type: incidentType.trim() || undefined });
+      if (requestId !== requestVersion.current) return;
       onAnalysis({ status: "success" }, analysis);
       onNotice({ type: "info", message: analysis.decision_changed ? "Memory changed the decision. Review the retrieved evidence and provenance below." : "Incident analyzed by the Memora backend." });
     } catch (error) {
+      if (requestId !== requestVersion.current) return;
       const message = apiMessage(error);
       onAnalysis({ status: message.includes("unreachable") ? "unavailable" : "error", message });
       onNotice({ type: "error", message });
@@ -202,9 +231,9 @@ function Intake({ onNotice, onAnalysis }: { onNotice: (notice: Notice) => void; 
   </section>;
 }
 
-function AnalysisOutput({ analysis, state }: { analysis: IncidentAnalysis | null; state: BackendState }) {
-  if (state.status === "loading") return <EmptyPanel icon={Clock3} eyebrow="ANALYSIS IN PROGRESS" title="Waiting for Memora backend" description="The current incident is being analyzed by the authoritative decision engine and Sibyl Memory." />;
-  if (state.status === "unavailable" || state.status === "error") return <EmptyPanel icon={AlertCircle} eyebrow={state.status === "unavailable" ? "MEMORA BACKEND UNAVAILABLE" : "ANALYSIS ERROR"} title="Unable to analyze incident" description={state.message || "The backend did not return an analysis."} />;
+export function AnalysisOutput({ analysis, state }: { analysis: IncidentAnalysis | null; state: BackendState }) {
+  if (state.status === "loading") return <EmptyPanel icon={Clock3} eyebrow="ANALYSIS IN PROGRESS" title={getAnalysisStateCopy(state)} description="The current incident is being analyzed by the authoritative decision engine and Sibyl Memory." />;
+  if (state.status === "unavailable" || state.status === "error") return <EmptyPanel icon={AlertCircle} eyebrow={state.status === "unavailable" ? "MEMORA BACKEND UNAVAILABLE" : "ANALYSIS ERROR"} title="Unable to analyze incident" description={getAnalysisStateCopy(state)} />;
   if (!analysis) return <EmptyPanel icon={ClipboardCheck} eyebrow="CURRENT INCIDENT" title="No incident analyzed yet" description="Submit an incident above to populate the operational record, timestamp, and incident identifier from the backend." />;
   return <div className="analysis-result"><div className="result-meta"><span>{analysis.incident?.incident_id || "Incident ID not provided by backend"}</span><span>{analysis.incident?.timestamp ? new Date(analysis.incident.timestamp).toLocaleString() : "Timestamp not provided by backend"}</span></div><h3>{analysis.incident?.summary || "Incident summary not provided by backend"}</h3><div className="result-grid"><div><span className="micro-label">BASELINE</span><strong>{analysis.baseline?.risk || "Not provided"}</strong><span>{analysis.baseline?.recommendation || "Not provided"}</span></div><div><span className="micro-label">MEMORA DECISION</span><strong>{analysis.decision?.risk || "Not provided"}</strong><span>{analysis.decision?.recommendation || "Not provided"}</span></div></div>{analysis.decision_changed && <div className="decision-change-banner"><strong>MEMORY CHANGED THIS DECISION</strong><span>{analysis.why_decision_changed || analysis.decision?.escalation_reason || "Reason not provided by backend"}</span></div>}<div className="evidence-stack">{(analysis.memory?.records || []).map((record) => <div className="evidence-row" key={record.id || `${record.category}-${record.timestamp}`}><span className="evidence-tag evidence-tag--memory">{record.category || "MEMORY"}</span><span>{record.summary || "Memory summary not provided by backend"}</span></div>)}</div></div>;
 }
@@ -220,7 +249,7 @@ function Workspace({ onNotice, onNavigate, live, onAnalysis }: { onNotice: (noti
       <section className="panel decision-panel"><SectionKicker label="03 / DECISION"><span className="record-status">NO DECISION</span></SectionKicker><div className="decision-empty"><div className="decision-empty__glyph"><TriangleAlert size={24} strokeWidth={1.25} /></div><p className="micro-label">MEMORA DECISION</p><h3>Awaiting analysis</h3><p>Baseline, memory-informed risk, and recommendation will appear here only after a successful backend response.</p><button className="text-action" onClick={() => setShowWhy((value) => !value)}>Why did Memora change this decision? <ChevronDown size={14} className={cn(showWhy && "rotate-180")} /></button>{showWhy && <div className="why-panel"><div><span>BASELINE</span><strong>Unavailable</strong></div><div><span>HISTORICAL EVIDENCE</span><strong>Unavailable</strong></div><div><span>MEMORA</span><strong>Unavailable</strong></div><div><span>REASON</span><strong>Will use backend response only</strong></div></div>}</div></section>
     </div>
     <div className="analysis-grid analysis-grid--lower">
-      <section className="panel memory-panel"><SectionKicker label="04 / MEMORY"><span className="record-status">SIBYL NOT CONNECTED</span></SectionKicker><EmptyPanel icon={History} eyebrow="OPERATIONAL MEMORY" title="Historical memory unavailable" description="No relevant operational history can be shown until the memory status and search procedures respond." action={<button className="text-action" onClick={() => onNavigate("memory")}>Open memory explorer <ArrowRight size={14} /></button>} /></section>
+      <section className="panel memory-panel"><SectionKicker label="04 / MEMORY"><span className="record-status">{live.memoryState.status === "success" ? "SIBYL CONNECTED" : live.memoryState.status === "loading" ? "SIBYL CHECKING" : live.memoryState.status === "unavailable" ? "SIBYL UNAVAILABLE" : "SIBYL ERROR"}</span></SectionKicker><EmptyPanel icon={History} eyebrow="OPERATIONAL MEMORY" title={live.memoryState.status === "success" ? "Search historical memory" : live.memoryState.status === "unavailable" ? "Historical memory unavailable" : "Historical memory not ready"} description={live.memoryState.status === "success" ? "Sibyl Memory is connected. Open the explorer to query real records." : live.memoryState.message || "No relevant operational history can be shown until the memory status endpoint responds."} action={<button className="text-action" onClick={() => onNavigate("memory")}>Open memory explorer <ArrowRight size={14} /></button>} /></section>
       <section className="panel inference-panel"><SectionKicker label="05 / INFERENCE"><span className="record-status">NO INFERENCE</span></SectionKicker><div className="evidence-stack"><div className="evidence-row"><span className="evidence-tag evidence-tag--fact">FACT</span><span>Waiting for explicit operator input.</span></div><div className="evidence-row"><span className="evidence-tag evidence-tag--memory">MEMORY</span><span>Waiting for retrieved operational history.</span></div><div className="evidence-row"><span className="evidence-tag evidence-tag--inference">INFERENCE</span><span>Will render backend inference; nothing is inferred locally.</span></div></div></section>
     </div>
     <section className="panel outcome-panel"><SectionKicker label="06 / OUTCOME + LEARNING"><span className="record-status">LOCKED UNTIL DECISION</span></SectionKicker><div className="outcome-layout"><div><h3>Record what happened next</h3><p>Outcome recording becomes available after an incident and decision exist. The returned outcome will update future operational context.</p></div><div className="outcome-fields"><div className="outcome-field"><span>Action taken</span><span className="field-unavailable">Unavailable</span></div><div className="outcome-field"><span>Observed result</span><span className="field-unavailable">Unavailable</span></div><div className="outcome-field"><span>Resolution state</span><span className="field-unavailable">Unavailable</span></div></div></div></section>
@@ -232,13 +261,15 @@ function MemoryExplorer({ onNotice }: { onNotice: (notice: Notice) => void }) {
   const [query, setQuery] = useState("");
   const [state, setState] = useState<BackendState>({ status: "idle" });
   const [results, setResults] = useState<MemorySearchResponse | null>(null);
+  const requestVersion = useRef(0);
   const search = async () => {
     if (!query.trim()) { onNotice({ type: "error", message: "Enter a search term before querying operational memory." }); return; }
+    const requestId = ++requestVersion.current;
     setState({ status: "loading" }); setResults(null);
-    try { const response = await memoraApi.searchMemory(query.trim()); setResults(response); setState({ status: response.results.length ? "success" : "empty" }); }
-    catch (error) { const message = apiMessage(error); setState({ status: message.includes("unreachable") ? "unavailable" : "error", message }); onNotice({ type: "error", message }); }
+    try { const response = await memoraApi.searchMemory(query.trim()); if (requestId !== requestVersion.current) return; setResults(response); setState({ status: response.results.length ? "success" : "empty" }); }
+    catch (error) { if (requestId !== requestVersion.current) return; const message = apiMessage(error); setState({ status: message.includes("unreachable") ? "unavailable" : "error", message }); onNotice({ type: "error", message }); }
   };
-  const statusLabel = state.status === "loading" ? "SEARCHING" : state.status === "success" ? `${results?.count ?? results?.results.length ?? 0} RESULTS` : state.status === "empty" ? "NO MATCHES" : "GET /api/memory/search";
+  const statusLabel = getMemorySearchStateLabel(state, results?.count ?? results?.results.length);
   return <div className="page-section"><div className="workspace-heading"><div><p className="eyebrow">OPERATIONAL MEMORY / SIBYL</p><h2>Memory explorer</h2><p className="heading-copy">Inspect historical operational records as chronology, not as a generic search feed.</p></div><StatusChip label={state.status === "unavailable" ? "Connection unavailable" : "REST search ready"} tone={state.status === "unavailable" ? "warn" : "ok"} /></div><section className="panel explorer-panel"><SectionKicker label="01 / SEARCH"><span className="record-status">{statusLabel}</span></SectionKicker><div className="explorer-search"><div className="search-field"><Search size={16} /><Input aria-label="Search operational memory" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search incidents, outcomes, lessons…" /></div><Button onClick={search} className="analyze-button" disabled={state.status === "loading"}><Search size={15} />{state.status === "loading" ? "Searching…" : "Search memory"}</Button></div>{state.status === "success" && results ? <div className="evidence-stack">{results.results.map((record) => <div className="evidence-row" key={record.id || `${record.category}-${record.timestamp}`}><span className="evidence-tag evidence-tag--memory">{record.category || record.tier || "MEMORY"}</span><span>{record.summary || "Summary not provided by backend"}</span><small>{record.id || "ID not provided"} · {record.timestamp ? new Date(record.timestamp).toLocaleString() : "Timestamp not provided"}</small></div>)}</div> : state.status === "empty" ? <EmptyPanel icon={FileSearch} eyebrow="EMPTY MEMORY RESULT" title="No relevant historical memory found" description="The backend returned no matching records for this query." /> : state.status === "unavailable" || state.status === "error" ? <EmptyPanel icon={AlertCircle} eyebrow={state.status === "unavailable" ? "SIBYL MEMORY UNAVAILABLE" : "MEMORY SEARCH ERROR"} title="Unable to search operational memory" description={state.message || "The backend did not return a valid search response."} /> : <EmptyPanel icon={FileSearch} eyebrow="READY FOR QUERY" title="Search real operational memory" description="Results, timestamps, IDs, status, and relevance will appear only from Sibyl Memory." />}</section></div>;
 }
 
@@ -266,7 +297,7 @@ export default function Home() {
   const onAnalysis = (state: BackendState, analysis: IncidentAnalysis | null = null) => setLive((current) => ({ ...current, analysisState: state, analysis: analysis ?? (state.status === "loading" ? null : current.analysis) }));
   const navigate = (id: string) => { setActive(id); window.scrollTo({ top: 0, behavior: "smooth" }); };
   const dismiss = () => setNotice(null);
-  return <div className="memora-shell"><Header active={active} onNavigate={navigate} onNewIncident={() => { navigate("workspace"); setTimeout(() => document.getElementById("intake")?.scrollIntoView({ behavior: "smooth" }), 50); }} /><div className="shell-body"><BlueprintRail active={active} onNavigate={navigate} /><main className="main-canvas"><div className="canvas-grid" /><div className="canvas-content"><div className="context-bar"><span><span className="context-pip" />OPERATIONS / {authUser ? "AUTHENTICATED SESSION" : "READINESS VIEW"}</span><span className="context-bar__right"><Clock3 size={13} />UTC display · real backend responses only</span></div>{active === "workspace" && <Workspace onNotice={setNotice} onNavigate={navigate} live={live} onAnalysis={onAnalysis} />}{active === "memory" && <MemoryExplorer onNotice={setNotice} />}{active === "provenance" && <Provenance onNotice={setNotice} />}<footer className="canvas-footer"><span>MEMORA / PHASE 2</span><span>DECISION TRACEABILITY OVER DECISION THEATRE</span><span>v0.1 / CONTRACT-FIRST UI</span></footer></div></main></div>{notice && <div className={cn("notice", notice.type === "error" && "notice--error")} role="status"><div className="notice__icon">{notice.type === "error" ? <X size={16} /> : <Info size={16} />}</div><span>{notice.message}</span><button onClick={dismiss} aria-label="Dismiss notice"><X size={14} /></button></div>}</div>;
+  return <div className="memora-shell"><Header active={active} onNavigate={navigate} memoryState={live.memoryState} onNewIncident={() => { navigate("workspace"); setTimeout(() => document.getElementById("intake")?.scrollIntoView({ behavior: "smooth" }), 50); }} /><div className="shell-body"><BlueprintRail active={active} onNavigate={navigate} /><main className="main-canvas"><div className="canvas-grid" /><div className="canvas-content"><div className="context-bar"><span><span className="context-pip" />OPERATIONS / {authUser ? "AUTHENTICATED SESSION" : "READINESS VIEW"}</span><span className="context-bar__right"><Clock3 size={13} />UTC display · real backend responses only</span></div>{active === "workspace" && <Workspace onNotice={setNotice} onNavigate={navigate} live={live} onAnalysis={onAnalysis} />}{active === "memory" && <MemoryExplorer onNotice={setNotice} />}{active === "provenance" && <Provenance onNotice={setNotice} />}<footer className="canvas-footer"><span>MEMORA / PHASE 2</span><span>DECISION TRACEABILITY OVER DECISION THEATRE</span><span>v0.1 / CONTRACT-FIRST UI</span></footer></div></main></div>{notice && <div className={cn("notice", notice.type === "error" && "notice--error")} role="status"><div className="notice__icon">{notice.type === "error" ? <X size={16} /> : <Info size={16} />}</div><span>{notice.message}</span><button onClick={dismiss} aria-label="Dismiss notice"><X size={14} /></button></div>}</div>;
 }
 
 export { StatusChip };
