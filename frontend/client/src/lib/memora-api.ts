@@ -72,7 +72,17 @@ export type IncidentAnalysis = {
   decision_changed?: boolean;
   decision_change?: { from_risk?: string; to_risk?: string; from_recommendation?: string; to_recommendation?: string };
   memory?: { found?: boolean; count?: number; records?: MemoryRecord[] };
-  inference?: { is_recurrent?: boolean; recurrence_count?: number; unresolved_history?: boolean; summary?: string; applicable_lessons?: string[] };
+  inference?: {
+    is_recurrent?: boolean;
+    recurrence_count?: number;
+    unresolved_history?: boolean;
+    unresolved_incident_ids?: string[];
+    has_prior_failed_outcome?: boolean;
+    failed_prior_actions?: string[];
+    verified_mitigations?: string[];
+    applicable_lessons?: string[];
+    summary?: string;
+  };
   why_decision_changed?: string;
   provenance?: { facts?: string; retrieval?: string; inference?: string; decision_shift?: string };
 };
