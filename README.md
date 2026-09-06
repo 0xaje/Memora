@@ -95,10 +95,7 @@ cp .env.example .env
 
 ## 4. Quickstart & Local Setup
 
-### Prerequisites
-- Python 3.10+ (tested on Python 3.13)
-
-### Installation
+### Backend Setup (FastAPI & Sibyl Memory)
 ```bash
 # Create and activate virtual environment
 python3 -m venv .venv
@@ -106,109 +103,56 @@ source .venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
-```
 
-### Running the API Server
-```bash
+# Start backend server
 PYTHONPATH=. uvicorn memora.api.app:app --host 0.0.0.0 --port 8000 --reload
 ```
-Interactive OpenAPI documentation will be available at: `http://localhost:8000/docs`
+Interactive OpenAPI documentation is available at: `http://localhost:8000/docs`
 
----
-
-## 5. API Endpoints
-
-### 1. Ingest & Analyze Incident
-- **`POST /api/incidents/analyze`**
-- **Payload:**
-  ```json
-  {
-    "raw_text": "Suspicious delivery vehicle observed again near Gate 3.",
-    "location": "Gate 3",
-    "memory_enabled": true
-  }
-  ```
-- **Response Structure:**
-  ```json
-  {
-    "incident": { "incident_id": "INC-8FE28CA8", "location": "Gate 3", "incident_type": "suspicious_vehicle" },
-    "session": { "id": "sess_001", "is_fresh": true },
-    "baseline_assessment": { "risk": "MEDIUM", "recommendation": "MONITOR_AND_VERIFY" },
-    "memory_assessment": { "risk": "HIGH", "recommendation": "ESCALATE_TO_SUPERVISOR", "changed": true },
-    "memory_influence": {
-      "related_incidents": [...],
-      "unresolved_risks": [...],
-      "operational_lessons": [...],
-      "retrieval_count": 3
-    },
-    "explanation": {
-      "what_happened": "Observation at Gate 3...",
-      "what_was_retrieved": "Retrieved 3 records from Sibyl Memory...",
-      "what_pattern_was_inferred": "Found active unresolved prior incident(s)...",
-      "why_decision_changed": "Baseline produced MEDIUM risk and 'MONITOR_AND_VERIFY'. However, Sibyl Memory revealed related unresolved cases..."
-    }
-  }
-  ```
-
-### 2. Record Incident Outcome
-- **`POST /api/outcomes`**
-- **Payload:**
-  ```json
-  {
-    "incident_id": "INC-8FE28CA8",
-    "action_taken": "MONITOR_AND_VERIFY",
-    "observed_result": "Similar suspicious activity occurred again.",
-    "is_resolved": false,
-    "unresolved_reason": "Vehicle returned during subsequent patrol cycle",
-    "operational_lesson": "Monitoring alone did not resolve recurring suspicious delivery activity near Gate 3."
-  }
-  ```
-
-### 3. Sibyl Memory Status & Search
-- **`GET /api/memory/status`**: Inspects connection status, database file path, and tier counts (`entities_warm`, `journal_cold`, `reference_documents`).
-- **`GET /api/memory/search?q=Gate 3`**: Direct cross-tier search against Sibyl Memory.
-
----
-
-## 6. Fresh-Session Recall Proof
-
-To verify the load-bearing memory loop across fresh sessions:
-
+### Frontend Setup (Operations Console)
 ```bash
-PYTHONPATH=. python scripts/run_proof.py
+cd frontend
+pnpm install
+pnpm dev
+```
+The Operations Console will be available at: `http://localhost:5173`
+
+---
+
+## 5. Official 3-Minute Hackathon Demo & Proof Scripts
+
+### 1. Automated Judge Verification Script (9-Step E2E Proof)
+Run the standalone, end-to-end verification script proving cold-start recall, decision shift (`MEDIUM` → `HIGH`), and the deletion test:
+```bash
+PYTHONPATH=. .venv/bin/python scripts/verify_memora_demo.py
+```
+> See [`docs/DEMO_RUNBOOK.md`](docs/DEMO_RUNBOOK.md) for the live 3-minute presentation script.
+
+### 2. Multi-Process Cold-Start Proof (Separate OS Processes)
+To verify that Sibyl Memory bridges completely independent operating system processes:
+```bash
+bash scripts/run_cold_start_process_proof.sh
 ```
 
-This executable demonstration runs the exact constitutional test:
-1. **Session A**: Ingests `"Suspicious delivery vehicle observed near Gate 3."` $\to$ Evaluates baseline (`MEDIUM` / `MONITOR_AND_VERIFY`) $\to$ Writes to Sibyl Memory.
-2. **Outcome**: Records unresolved follow-up $\to$ Persists `UnresolvedRiskMemory` and `OperationalLesson` into Sibyl.
-3. **Session B (Genuinely Fresh)**: Completely clean process instance without in-memory state.
-4. **Session B Ingest**: Ingests `"Suspicious delivery vehicle observed again near Gate 3."`
-5. **Sibyl Recall**: Retrieves Session A's unresolved incident and operational lesson.
-6. **Decision Escalation**: Risk escalates to `HIGH` and recommendation changes to `ESCALATE_TO_SUPERVISOR`.
-7. **Audit Explanation**: Displays the full audit trail detailing *why* the decision changed.
+### 3. Deletion Test Procedure
+To verify that Sibyl Memory is truly load-bearing and that decisions revert when memory is isolated:
+```bash
+PYTHONPATH=. .venv/bin/python scripts/test_deletion_proof.py
+```
 
 ---
 
-## 7. Deletion Test Procedure
+## 6. Full Verification Test Suites
 
-To verify that Sibyl Memory is truly load-bearing and not cosmetic:
-
+### Backend Test Suite (23 Passing Tests)
 ```bash
-PYTHONPATH=. python scripts/test_deletion_proof.py
+PYTHONPATH=. .venv/bin/pytest -v
 ```
+Covers API contracts, validation, failure modes, tenant isolation, adversarial boundaries, and load-bearing proofs.
 
-This demonstrates side-by-side:
-- **Case A (With Sibyl Memory)**: Escalates to `HIGH` risk and `ESCALATE_TO_SUPERVISOR`.
-- **Case B (Without Sibyl Memory)**: Remains at baseline `MEDIUM` risk and `MONITOR_AND_VERIFY`.
-- Demonstrates that removing historical memory naturally causes the agent to lose its repeat-pattern detection capability.
-
----
-
-## 8. Test Suite Verification
-
-Run the full automated pytest suite:
-
+### Frontend Test Suite (17 Passing Tests)
 ```bash
-PYTHONPATH=. pytest -v tests/
+cd frontend && pnpm test
 ```
-All 9 automated unit, integration, and deletion tests pass cleanly.
+Covers API client contracts, live state transitions, UI rendering, and mock-free error handling.
+

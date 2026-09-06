@@ -233,7 +233,41 @@ function Intake({ onNotice, onAnalysis }: { onNotice: (notice: Notice) => void; 
     <div className="intake-grid">
       <div className="intake-copy"><h1>What happened?</h1><p>Describe the operational event in plain language. Memora will compare the current signal with historical memory before a decision is returned.</p><div className="intake-rule" /><div className="intake-meta"><span><LockKeyhole size={13} /> Evidence-bound workflow</span><span><ShieldCheck size={13} /> No local simulation</span></div></div>
       <div className={cn("intake-form", focused && "intake-form--focused")}>
-        <div className="field field--primary"><Label htmlFor="incident-description">Incident description <span>*</span></Label><Textarea id="incident-description" placeholder="Describe the incident you need to analyze…" value={description} onChange={(event) => setDescription(event.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} /><div className="field-hint">Natural language accepted · no schema knowledge required</div></div>
+        <div className="field field--primary">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", flexWrap: "wrap", gap: "6px" }}>
+            <Label htmlFor="incident-description" style={{ margin: 0 }}>Incident description <span>*</span></Label>
+            <div style={{ display: "flex", gap: "6px" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setDescription("Suspicious delivery vehicle observed lingering near Gate 3 for 45 minutes.");
+                  setLocation("Gate 3");
+                  setIncidentType("suspicious_vehicle");
+                }}
+                className="cold-start-bar__btn"
+                style={{ fontSize: "9px", padding: "2px 8px", background: "rgba(100, 150, 255, 0.15)", borderColor: "rgba(150, 180, 255, 0.3)" }}
+                title="Fill Runbook Demo Step 1: Initial stateless baseline"
+              >
+                ⚡ Demo 1: Baseline (Gate 3)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDescription("Unidentified white delivery van returned to Gate 3, idling near loading dock without credentials.");
+                  setLocation("Gate 3");
+                  setIncidentType("suspicious_vehicle");
+                }}
+                className="cold-start-bar__btn"
+                style={{ fontSize: "9px", padding: "2px 8px", background: "rgba(255, 184, 108, 0.15)", borderColor: "rgba(255, 184, 108, 0.4)", color: "#ffb86c" }}
+                title="Fill Runbook Demo Step 2: Recurring threat triggering Sibyl escalation"
+              >
+                🔥 Demo 2: Recurring (Gate 3)
+              </button>
+            </div>
+          </div>
+          <Textarea id="incident-description" placeholder="Describe the incident you need to analyze…" value={description} onChange={(event) => setDescription(event.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} />
+          <div className="field-hint">Natural language accepted · no schema knowledge required</div>
+        </div>
         <div className="intake-form__row"><div className="field"><Label htmlFor="incident-location">Location <span className="optional">OPTIONAL</span></Label><Input id="incident-location" placeholder="e.g. Gate 3" value={location} onChange={(event) => setLocation(event.target.value)} /></div><div className="field"><Label htmlFor="incident-type">Incident type <span className="optional">OPTIONAL</span></Label><Input id="incident-type" placeholder="e.g. suspicious_vehicle" value={incidentType} onChange={(event) => setIncidentType(event.target.value)} /></div></div>
         <div className="form-actions"><span className="form-contract"><span className="contract-dot" />POST /api/incidents/analyze <span className="contract-muted">· backend authoritative</span></span><Button onClick={submit} className="analyze-button" disabled={submitting}>{submitting ? <Clock3 size={15} className="animate-spin" /> : <Sparkles size={15} />}{submitting ? "Analyzing…" : "Analyze incident"}<ArrowRight size={15} /></Button></div>
       </div>
@@ -569,8 +603,25 @@ function OutcomeSection({
 
   return (
     <div className="outcome-form">
-      <div style={{ color: "#8eaee1", fontSize: "11px", fontFamily: "IBM Plex Mono, monospace" }}>
-        ACTIVE INCIDENT: <strong style={{ color: "#ffffff" }}>{incidentId}</strong>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "8px" }}>
+        <div style={{ color: "#8eaee1", fontSize: "11px", fontFamily: "IBM Plex Mono, monospace" }}>
+          ACTIVE INCIDENT: <strong style={{ color: "#ffffff" }}>{incidentId}</strong>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setActionTaken("Monitored delivery vehicle via Gate 3 perimeter cameras");
+            setObservedResult("Vehicle departed before license or driver credentials could be verified");
+            setIsResolved(false);
+            setUnresolvedReason("Vehicle departed before credentials could be checked; tactical observation failed");
+            setOperationalLesson("Passive monitoring alone failed to resolve suspicious vehicle at Gate 3. Require physical patrol intercept.");
+          }}
+          className="cold-start-bar__btn"
+          style={{ fontSize: "9px", padding: "2px 8px", background: "rgba(255, 100, 100, 0.15)", borderColor: "rgba(255, 120, 120, 0.4)", color: "#ff9999" }}
+          title="Fill Runbook Demo Step 1 Outcome: Unresolved monitoring failure"
+        >
+          ⚡ Prefill Demo Failure Outcome
+        </button>
       </div>
       <div className="outcome-form__grid">
         <div className="field">
