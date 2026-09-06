@@ -200,3 +200,8 @@ export const memoraApi = {
 };
 
 export const memoraApiConfig = { baseUrl: API_BASE_URL };
+
+export const BUILD_METADATA = {
+  commitSha: typeof __GIT_COMMIT_SHA__ !== "undefined" ? __GIT_COMMIT_SHA__ : "dev-local",
+  buildTimestamp: typeof __BUILD_TIMESTAMP__ !== "undefined" ? __BUILD_TIMESTAMP__ : new Date().toISOString(),
+};

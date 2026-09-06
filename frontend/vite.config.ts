@@ -1,10 +1,22 @@
 import { jsxLocPlugin } from "@builder.io/vite-plugin-jsx-loc";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
+
+function getGitCommitSha(): string {
+  try {
+    return execSync("git rev-parse --short HEAD", { encoding: "utf-8" }).trim();
+  } catch {
+    return "dev-local";
+  }
+}
+
+const GIT_COMMIT_SHA = getGitCommitSha();
+const BUILD_TIMESTAMP = new Date().toISOString();
 
 // =============================================================================
 // Manus Debug Collector - Vite Plugin
@@ -153,6 +165,10 @@ function vitePluginManusDebugCollector(): Plugin {
 const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
 
 export default defineConfig({
+  define: {
+    __GIT_COMMIT_SHA__: JSON.stringify(GIT_COMMIT_SHA),
+    __BUILD_TIMESTAMP__: JSON.stringify(BUILD_TIMESTAMP),
+  },
   plugins,
   resolve: {
     alias: {
