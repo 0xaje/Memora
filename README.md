@@ -146,8 +146,9 @@ PYTHONPATH=. .venv/bin/python scripts/test_deletion_proof.py
 
 ### Backend Test Suite (23 Passing Tests)
 ```bash
-PYTHONPATH=. .venv/bin/pytest -v
+pytest -v
 ```
+*(Or `PYTHONPATH=. .venv/bin/pytest -v`)*
 Covers API contracts, validation, failure modes, tenant isolation, adversarial boundaries, and load-bearing proofs.
 
 ### Frontend Test Suite (17 Passing Tests)
@@ -155,4 +156,5 @@ Covers API contracts, validation, failure modes, tenant isolation, adversarial b
 cd frontend && pnpm test
 ```
 Covers API client contracts, live state transitions, UI rendering, and mock-free error handling.
+
 

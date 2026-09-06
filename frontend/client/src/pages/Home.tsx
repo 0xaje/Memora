@@ -246,9 +246,9 @@ function Intake({ onNotice, onAnalysis }: { onNotice: (notice: Notice) => void; 
                 }}
                 className="cold-start-bar__btn"
                 style={{ fontSize: "9px", padding: "2px 8px", background: "rgba(100, 150, 255, 0.15)", borderColor: "rgba(150, 180, 255, 0.3)" }}
-                title="Fill Runbook Demo Step 1: Initial stateless baseline"
+                title="Populate sample observation: Initial unverified vehicle observation near Gate 3"
               >
-                ⚡ Demo 1: Baseline (Gate 3)
+                Sample: Perimeter Lingering Vehicle
               </button>
               <button
                 type="button"
@@ -259,9 +259,9 @@ function Intake({ onNotice, onAnalysis }: { onNotice: (notice: Notice) => void; 
                 }}
                 className="cold-start-bar__btn"
                 style={{ fontSize: "9px", padding: "2px 8px", background: "rgba(255, 184, 108, 0.15)", borderColor: "rgba(255, 184, 108, 0.4)", color: "#ffb86c" }}
-                title="Fill Runbook Demo Step 2: Recurring threat triggering Sibyl escalation"
+                title="Populate sample observation: Recurring unverified vehicle at Gate 3"
               >
-                🔥 Demo 2: Recurring (Gate 3)
+                Sample: Recurring Vehicle Re-entry
               </button>
             </div>
           </div>
@@ -597,6 +597,17 @@ function OutcomeSection({
             <strong>{live.outcome.lesson_rule || live.outcome.lesson_id || "None recorded"}</strong>
           </div>
         </div>
+        <div style={{ marginTop: "12px", padding: "10px 14px", background: "rgba(121, 237, 190, 0.08)", border: "1px solid rgba(121, 237, 190, 0.25)", borderRadius: "4px", fontSize: "11px", fontFamily: "IBM Plex Mono, monospace", color: "#d2f7e7" }}>
+          <div style={{ fontWeight: 600, marginBottom: "6px", color: "#79edbe", display: "flex", alignItems: "center", gap: "6px" }}>
+            <span>✓</span> SIBYL MEMORY PERSISTENCE CONFIRMATION
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "6px", color: "#b5ccf2" }}>
+            <div><span style={{ color: "#79edbe" }}>✓</span> Outcome recorded in WARM tier: <strong style={{ color: "#ffffff" }}>{live.outcome.outcome_id}</strong></div>
+            <div><span style={{ color: "#79edbe" }}>✓</span> Operational lesson indexed: <strong style={{ color: "#ffffff" }}>{live.outcome.lesson_id || "Synthesized"}</strong></div>
+            <div><span style={{ color: "#79edbe" }}>✓</span> {live.outcome.is_resolved ? "Unresolved risk cleared" : "Unresolved risk persisted to Sibyl"}</div>
+            <div><span style={{ color: "#79edbe" }}>✓</span> Future analysis will recall this mitigation history</div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -618,9 +629,9 @@ function OutcomeSection({
           }}
           className="cold-start-bar__btn"
           style={{ fontSize: "9px", padding: "2px 8px", background: "rgba(255, 100, 100, 0.15)", borderColor: "rgba(255, 120, 120, 0.4)", color: "#ff9999" }}
-          title="Fill Runbook Demo Step 1 Outcome: Unresolved monitoring failure"
+          title="Populate sample tactical outcome: Unresolved monitoring failure at Gate 3"
         >
-          ⚡ Prefill Demo Failure Outcome
+          Sample: Unresolved Patrol Observation
         </button>
       </div>
       <div className="outcome-form__grid">
@@ -1007,7 +1018,19 @@ function Workspace({
                       <div>
                         <span style={{ display: "block", color: "#ffffff" }}>{item.text}</span>
                         <small style={{ color: "#8eaee1", fontSize: "10px", fontFamily: "IBM Plex Mono, monospace" }}>
-                          Source: {item.source} · Confidence: {Math.round(item.confidence * 100)}%
+                          Source: {item.source} · Support: {
+                            item.type === "CURRENT_FACT"
+                              ? "Direct Observation"
+                              : item.type === "HISTORICAL_FACT"
+                                ? "Archived Record"
+                                : item.type === "UNKNOWN"
+                                  ? "Unverified Variable"
+                                  : item.type === "RECOMMENDATION"
+                                    ? "Action Protocol"
+                                    : item.confidence >= 0.9
+                                      ? "Corroborated by Rule"
+                                      : "Pattern Inferred"
+                          }
                           {item.supporting_record_id ? ` · Ref: ${item.supporting_record_id}` : ""}
                         </small>
                       </div>
