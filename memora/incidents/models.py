@@ -42,6 +42,48 @@ class IncidentCreate(BaseModel):
         return v.strip()
 
 
+class EvidenceType(str, Enum):
+    CURRENT_FACT = "CURRENT_FACT"
+    HISTORICAL_FACT = "HISTORICAL_FACT"
+    INFERENCE = "INFERENCE"
+    RECOMMENDATION = "RECOMMENDATION"
+    UNKNOWN = "UNKNOWN"
+
+
+class EvidenceItem(BaseModel):
+    """Structured evidence element explicitly separating facts, memory, inferences, and unknowns."""
+    source: str
+    type: EvidenceType
+    confidence: float = 1.0
+    entity_or_location: Optional[str] = None
+    supporting_record_id: Optional[str] = None
+    text: str
+
+
+class FailedMitigation(BaseModel):
+    """Operational intelligence diagnosing a prior failed mitigation."""
+    prior_action: str
+    observed_result: str
+    failure_diagnosis: str
+    current_implication: str
+
+
+class ActionableLesson(BaseModel):
+    """Historical operational lesson mapped directly to current operational guidance."""
+    lesson_id: str
+    historical_rule: str
+    current_implication: str
+    recommended_adjustment: str
+
+
+class HistoricalPatternDetail(BaseModel):
+    """Specific operational pattern detected across historical records."""
+    pattern_type: str
+    title: str
+    description: str
+    supporting_record_ids: List[str] = Field(default_factory=list)
+
+
 class IncidentFacts(BaseModel):
     """Normalized, extracted operational facts."""
     incident_id: str
@@ -51,6 +93,11 @@ class IncidentFacts(BaseModel):
     indicators: List[str] = Field(default_factory=list)
     entities_involved: List[str] = Field(default_factory=list)
     timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    approximate_time: Optional[str] = None
+    duration: Optional[str] = None
+    reported_by: Optional[str] = "field_operator"
+    entity_attributes: Dict[str, Any] = Field(default_factory=dict)
+    unknowns: List[str] = Field(default_factory=list)
 
 
 class OutcomeCreate(BaseModel):
@@ -118,6 +165,10 @@ class PatternInferenceSummary(BaseModel):
     failed_prior_actions: List[str] = Field(default_factory=list)
     verified_mitigations: List[str] = Field(default_factory=list)
     applicable_lessons: List[str] = Field(default_factory=list)
+    failed_mitigation_details: List[FailedMitigation] = Field(default_factory=list)
+    actionable_lessons_details: List[ActionableLesson] = Field(default_factory=list)
+    patterns_detected: List[HistoricalPatternDetail] = Field(default_factory=list)
+    is_resolved_precedent: bool = False
     summary: str = ""
 
 
@@ -169,6 +220,13 @@ class IncidentAnalysisResult(BaseModel):
     inference: PatternInferenceSummary
     why_decision_changed: str
     provenance: ProvenanceSummary
+
+    # Phase 3 intelligence extensions
+    evidence_chain: List[EvidenceItem] = Field(default_factory=list)
+    failed_mitigations: List[FailedMitigation] = Field(default_factory=list)
+    actionable_lessons: List[ActionableLesson] = Field(default_factory=list)
+    patterns_detected: List[HistoricalPatternDetail] = Field(default_factory=list)
+    unknowns: List[str] = Field(default_factory=list)
 
 
 class OutcomeResponse(BaseModel):
