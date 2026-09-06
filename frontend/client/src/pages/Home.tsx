@@ -3,6 +3,7 @@ import { trpc } from "@/lib/trpc";
 import {
   memoraApi,
   MemoraApiError,
+  BUILD_METADATA,
   type IncidentAnalysis,
   type MemorySearchResponse,
   type MemoryStatusResponse,
@@ -17,6 +18,7 @@ import {
   ChevronDown,
   ClipboardCheck,
   Clock3,
+  Code,
   Database,
   FileSearch,
   Grid2X2,
@@ -28,6 +30,7 @@ import {
   Network,
   PanelRight,
   Plus,
+  RefreshCw,
   Search,
   ShieldCheck,
   Sparkles,
@@ -643,16 +646,181 @@ function OutcomeSection({
   );
 }
 
+function SessionBar({
+  sessionId,
+  isColdSession,
+  analysis,
+  memoryState,
+  onResetSession,
+}: {
+  sessionId: string;
+  isColdSession: boolean;
+  analysis: IncidentAnalysis | null;
+  memoryState: BackendState;
+  onResetSession: () => void;
+}) {
+  const analysisTimestamp = analysis?.incident?.timestamp
+    ? new Date(analysis.incident.timestamp).toUTCString()
+    : "Awaiting incident input";
+
+  return (
+    <div className="session-bar">
+      <div className="session-bar__left">
+        <div className="session-bar__pill">
+          <span>SESSION:</span>
+          <strong>{analysis?.session?.id || sessionId}</strong>
+        </div>
+        <span
+          className={cn(
+            "session-bar__badge",
+            isColdSession ? "session-bar__badge--cold" : "session-bar__badge--active"
+          )}
+        >
+          {isColdSession ? "COLD-START / FRESH CONTEXT" : "IN-SESSION MEMORY ACTIVE"}
+        </span>
+        <div className="session-bar__pill">
+          <span>BACKEND:</span>
+          <strong>HEALTHY (:8000)</strong>
+        </div>
+        <div className="session-bar__pill">
+          <span>SIBYL MEMORY:</span>
+          <strong>{memoryState.status === "success" ? "CONNECTED (SQLite FTS5)" : "CHECKING"}</strong>
+        </div>
+        <div className="session-bar__pill">
+          <span>ANALYSIS UTC:</span>
+          <strong>{analysisTimestamp}</strong>
+        </div>
+        <div className="session-bar__pill">
+          <span>BUILD COMMIT:</span>
+          <strong>{BUILD_METADATA.commitSha}</strong>
+        </div>
+      </div>
+      <div className="session-bar__actions">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onResetSession}
+          style={{ height: "26px", fontSize: "10px", fontFamily: "IBM Plex Mono, monospace" }}
+        >
+          <RefreshCw size={12} className="mr-1" />
+          Start Fresh Session
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function MemoryRecallProofSurface({ analysis }: { analysis: IncidentAnalysis }) {
+  const currentFacts = analysis.evidence_chain?.filter((e) => e.type === "CURRENT_FACT") || [];
+  const inferences = analysis.evidence_chain?.filter((e) => e.type === "INFERENCE") || [];
+  const unknowns = analysis.unknowns || analysis.incident?.unknowns || [];
+  const recommendations = analysis.evidence_chain?.filter((e) => e.type === "RECOMMENDATION") || [];
+
+  return (
+    <div style={{ marginTop: "24px" }}>
+      <SectionKicker label="05 / MEMORY RECALL PROOF SURFACE">
+        <span className="record-status">EVIDENCE TAXONOMY</span>
+      </SectionKicker>
+      <div className="proof-surface">
+        <div className="proof-column proof-column--current">
+          <div className="proof-column__header">
+            <span className="proof-column__title" style={{ color: "#79edbe" }}>01 CURRENT FACTS</span>
+            <span className="evidence-tag evidence-tag--fact">{currentFacts.length} SIGNAL(S)</span>
+          </div>
+          {currentFacts.length > 0 ? (
+            currentFacts.map((fact, idx) => (
+              <div key={idx} style={{ fontSize: "11px", color: "#ffffff", lineHeight: "1.4" }}>
+                • {fact.text}
+              </div>
+            ))
+          ) : (
+            <span style={{ fontSize: "11px", color: "#8eaee1" }}>{analysis.incident?.summary || "Direct input"}</span>
+          )}
+        </div>
+
+        <div className="proof-column proof-column--remembered">
+          <div className="proof-column__header">
+            <span className="proof-column__title" style={{ color: "#d4a9ff" }}>02 SIBYL REMEMBERED</span>
+            <span className="evidence-tag evidence-tag--historical">{analysis.memory?.count ?? 0} RECORD(S)</span>
+          </div>
+          {analysis.memory?.found && (analysis.memory.records || []).length > 0 ? (
+            (analysis.memory.records || []).map((rec, idx) => (
+              <div key={idx} style={{ fontSize: "11px", color: "#ffffff", lineHeight: "1.4" }}>
+                <span style={{ color: "#d4a9ff", fontWeight: 700 }}>[{rec.id || rec.category}]</span> {rec.summary}
+              </div>
+            ))
+          ) : (
+            <span style={{ fontSize: "11px", color: "#8eaee1" }}>No relevant historical records found in Sibyl SQLite.</span>
+          )}
+        </div>
+
+        <div className="proof-column proof-column--inferred">
+          <div className="proof-column__header">
+            <span className="proof-column__title" style={{ color: "#8eaee1" }}>03 INFERRED PATTERNS</span>
+            <span className="evidence-tag evidence-tag--inference">{inferences.length || 1} PATTERN(S)</span>
+          </div>
+          {inferences.length > 0 ? (
+            inferences.map((inf, idx) => (
+              <div key={idx} style={{ fontSize: "11px", color: "#ffffff", lineHeight: "1.4" }}>
+                • {inf.text}
+              </div>
+            ))
+          ) : (
+            <span style={{ fontSize: "11px", color: "#ffffff" }}>{analysis.inference?.summary || "Deterministic baseline evaluation."}</span>
+          )}
+        </div>
+
+        <div className="proof-column proof-column--unknown">
+          <div className="proof-column__header">
+            <span className="proof-column__title" style={{ color: "#a4bde7" }}>04 UNKNOWNS</span>
+            <span className="evidence-tag evidence-tag--unknown">{unknowns.length} OPEN</span>
+          </div>
+          {unknowns.length > 0 ? (
+            unknowns.map((u, idx) => (
+              <div key={idx} style={{ fontSize: "11px", color: "#a9c4ee", lineHeight: "1.4" }}>
+                ? {u}
+              </div>
+            ))
+          ) : (
+            <span style={{ fontSize: "11px", color: "#8eaee1" }}>No explicit operational unknowns flagged.</span>
+          )}
+        </div>
+
+        <div className="proof-column proof-column--recommended">
+          <div className="proof-column__header">
+            <span className="proof-column__title" style={{ color: "#79edbe" }}>05 RECOMMENDATION</span>
+            <span className="evidence-tag evidence-tag--ok">{analysis.decision?.risk}</span>
+          </div>
+          <div style={{ fontSize: "12px", fontWeight: 700, color: "#79edbe" }}>
+            {analysis.decision?.recommendation}
+          </div>
+          {recommendations.map((rec, idx) => (
+            <div key={idx} style={{ fontSize: "11px", color: "#b5ccf2", lineHeight: "1.4" }}>
+              {rec.text}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Workspace({
   onNotice,
   onNavigate,
   live,
+  sessionId,
+  isColdSession,
+  onResetSession,
   onAnalysis,
   onOutcome,
 }: {
   onNotice: (notice: Notice) => void;
   onNavigate: (id: string) => void;
   live: LiveWorkspace;
+  sessionId: string;
+  isColdSession: boolean;
+  onResetSession: () => void;
   onAnalysis: (state: BackendState, analysis?: IncidentAnalysis | null) => void;
   onOutcome: (state: BackendState, outcome?: OutcomeResponse | null) => void;
 }) {
@@ -660,14 +828,32 @@ function Workspace({
     <>
       <div className="workspace-heading">
         <div>
-          <p className="eyebrow">OPERATIONAL INTELLIGENCE / LIVE WORKSPACE</p>
-          <h2>Incident analysis</h2>
-          <p className="heading-copy">A decision workspace for connecting current events to what operations has already learned.</p>
+          <p className="eyebrow" style={{ color: "#79edbe", fontWeight: 700, letterSpacing: "1px" }}>
+            OPERATIONAL INTELLIGENCE / CORE THESIS
+          </p>
+          <h1 style={{ fontSize: "24px", margin: "4px 0 6px", color: "#ffffff", fontWeight: 700 }}>
+            Operational decisions informed by what happened before.
+          </h1>
+          <p className="heading-copy" style={{ fontSize: "13px", color: "#8eaee1" }}>
+            “What happened before changes what Memora does now.” Direct signals are compared against persistent Sibyl Memory before an authoritative recommendation is formed.
+          </p>
         </div>
-        <button className="outline-action" onClick={() => document.getElementById("intake")?.scrollIntoView({ behavior: "smooth" })}>
-          <Plus size={15} />New incident
-        </button>
+        <div style={{ display: "flex", gap: "8px" }}>
+          <button className="outline-action" onClick={onResetSession}>
+            <RefreshCw size={14} />Start fresh session
+          </button>
+          <button className="outline-action" onClick={() => document.getElementById("intake")?.scrollIntoView({ behavior: "smooth" })}>
+            <Plus size={14} />New incident
+          </button>
+        </div>
       </div>
+      <SessionBar
+        sessionId={sessionId}
+        isColdSession={isColdSession}
+        analysis={live.analysis}
+        memoryState={live.memoryState}
+        onResetSession={onResetSession}
+      />
       <Intake onNotice={onNotice} onAnalysis={onAnalysis} />
       <div className="section-row-label">
         <span>ANALYSIS OUTPUT</span>
@@ -815,6 +1001,7 @@ function Workspace({
           )}
         </section>
       </div>
+      {live.analysis && <MemoryRecallProofSurface analysis={live.analysis} />}
       <section className="panel outcome-panel">
         <SectionKicker label="06 / OUTCOME + LEARNING">
           <span className="record-status">
@@ -905,39 +1092,77 @@ function MemoryExplorer({ onNotice }: { onNotice: (notice: Notice) => void }) {
 }
 
 function Provenance({ analysis, onNotice }: { analysis: IncidentAnalysis | null; onNotice: (notice: Notice) => void }) {
+  const [showRawJson, setShowRawJson] = useState(false);
+
   const steps = useMemo(() => {
     if (!analysis) {
       return [
-        ["01", "What happened", "Operator input", "Unavailable until the backend returns this stage."],
-        ["02", "What Memora retrieved", "Sibyl memory", "Unavailable until the backend returns this stage."],
-        ["03", "What Memora inferred", "Backend inference", "Unavailable until the backend returns this stage."],
-        ["04", "What Memora recommended", "Decision response", "Unavailable until the backend returns this stage."],
+        ["01", "CURRENT INPUT", "Operator input", "Direct operational event description waiting for submission."],
+        ["02", "CURRENT FACTS", "Deterministic extraction", "Entities, location, duration, and indicators extracted from text."],
+        ["03", "SIBYL RETRIEVAL", "Persistent SQLite FTS5", "Fast indexed search across past incidents, risks, and lessons."],
+        ["04", "HISTORICAL EVIDENCE", "Retrieved memory records", "Correlated operational records found in Sibyl Memory."],
+        ["05", "PATTERN DETECTED", "Multi-dimensional matching", "Recurrence, location relevance, and mitigation failure analysis."],
+        ["06", "INFERENCE", "Operational synthesis", "Synthesized risk signals and active unresolved hazard assessment."],
+        ["07", "DECISION SHIFT", "Stateless vs Memory-informed", "Baseline evaluation compared against historical precedent."],
+        ["08", "RECOMMENDATION", "Actionable guidance", "Authoritative directive with specific operational adjustments."],
       ];
     }
+
+    const recCount = analysis.memory?.count ?? 0;
+    const recIds = (analysis.memory?.records || []).map((r) => r.id).filter(Boolean).slice(0, 3).join(", ");
+    const patterns = analysis.patterns_detected?.map((p) => p.title).join("; ") || (analysis.inference?.is_recurrent ? `Recurring pattern at ${analysis.incident?.location || "location"}` : "Baseline pattern evaluation.");
+    const decisionShift = analysis.decision_changed
+      ? `Shifted from ${analysis.baseline?.risk || "BASELINE"} (${analysis.baseline?.recommendation || "NONE"}) to ${analysis.decision?.risk || "TRANSFORMED"} (${analysis.decision?.recommendation || "NONE"})`
+      : `Maintained baseline ${analysis.baseline?.risk || "RISK"} (${analysis.baseline?.recommendation || "REC"}) without escalation.`;
+
     return [
       [
         "01",
-        "What happened",
-        "Operator input",
-        analysis.provenance?.facts || analysis.incident?.summary || "Operator input received.",
+        "CURRENT INPUT",
+        "Natural language report",
+        analysis.incident?.summary || "Operator input received.",
       ],
       [
         "02",
-        "What Memora retrieved",
-        "Sibyl memory",
-        analysis.provenance?.retrieval || (analysis.memory?.found ? `${analysis.memory.count} matching historical record(s) retrieved from Sibyl Memory.` : "No historical records retrieved."),
+        "CURRENT FACTS",
+        "Deterministic extraction",
+        `Location: ${analysis.incident?.location || "N/A"} · Type: ${analysis.incident?.incident_type || "N/A"} · Time: ${analysis.incident?.approximate_time || "N/A"} · Duration: ${analysis.incident?.duration || "N/A"}${analysis.incident?.reported_by ? ` · Reporter: ${analysis.incident.reported_by}` : ""}`,
       ],
       [
         "03",
-        "What Memora inferred",
-        "Backend inference",
-        analysis.provenance?.inference || analysis.inference?.summary || "Deterministic baseline evaluation.",
+        "SIBYL RETRIEVAL",
+        "Persistent SQLite FTS5 query",
+        analysis.provenance?.retrieval || (analysis.memory?.found ? `Queried location '${analysis.incident?.location || "general"}' and retrieved ${recCount} historical record(s) from Sibyl SQLite.` : "Queried Sibyl Memory: no prior operational records found."),
       ],
       [
         "04",
-        "What Memora recommended",
-        "Decision response",
-        analysis.provenance?.decision_shift || `${analysis.decision?.risk} (${analysis.decision?.recommendation})`,
+        "HISTORICAL EVIDENCE",
+        "Remembered operational history",
+        analysis.memory?.found ? `Retrieved ${recCount} record(s)${recIds ? `: ${recIds}` : ""}. Unresolved risk records: ${analysis.inference?.unresolved_incident_ids?.join(", ") || "None"}.` : "Zero historical matches returned.",
+      ],
+      [
+        "05",
+        "PATTERN DETECTED",
+        "Multi-dimensional analysis",
+        patterns,
+      ],
+      [
+        "06",
+        "INFERENCE",
+        "Operational synthesis",
+        analysis.provenance?.inference || analysis.inference?.summary || "Deterministic baseline evaluation.",
+      ],
+      [
+        "07",
+        "DECISION SHIFT",
+        "Stateless vs Memory-informed",
+        analysis.provenance?.decision_shift || decisionShift,
+      ],
+      [
+        "08",
+        "RECOMMENDATION",
+        "Authoritative directive",
+        `${analysis.decision?.risk}: ${analysis.decision?.recommendation}`,
       ],
     ];
   }, [analysis]);
@@ -948,7 +1173,7 @@ function Provenance({ analysis, onNotice }: { analysis: IncidentAnalysis | null;
         <div>
           <p className="eyebrow">TRACEABILITY / AUDIT VIEW</p>
           <h2>Provenance</h2>
-          <p className="heading-copy">Follow the evidence chain without exposing internal storage or implementation details.</p>
+          <p className="heading-copy">Follow the 8-stage evidence chain from raw input to authoritative recommendation.</p>
         </div>
         <button
           className="outline-action"
@@ -958,12 +1183,12 @@ function Provenance({ analysis, onNotice }: { analysis: IncidentAnalysis | null;
         </button>
       </div>
       <section className="panel provenance-panel">
-        <SectionKicker label="01 / EVIDENCE CHAIN">
+        <SectionKicker label="01 / 8-STAGE EVIDENCE CHAIN">
           <span className="record-status">{analysis ? "TRACE ACTIVE" : "NO ACTIVE TRACE"}</span>
         </SectionKicker>
-        <div className="provenance-chain">
+        <div className="provenance-chain provenance-chain--8stage">
           {steps.map(([number, title, detail, description], index) => (
-            <div className="provenance-step" key={number}>
+            <div className={cn("provenance-step", analysis && "provenance-step--active")} key={number}>
               <div className="provenance-step__top">
                 <span className="provenance-step__number">{number}</span>
                 {index < steps.length - 1 && <span className="provenance-step__connector" />}
@@ -971,22 +1196,35 @@ function Provenance({ analysis, onNotice }: { analysis: IncidentAnalysis | null;
               <div className="provenance-step__body">
                 <p className="micro-label">{detail}</p>
                 <h3>{title}</h3>
-                <p>{description}</p>
+                <p style={{ fontSize: "11px", lineHeight: "1.45" }}>{description}</p>
               </div>
             </div>
           ))}
         </div>
       </section>
       {analysis && (
-        <div className="provenance-note" style={{ marginTop: "16px" }}>
-          <AlertCircle size={17} />
-          <div>
-            <strong>Backend Identifiers & Audit Metadata</strong>
-            <span>
-              Incident ID: {analysis.incident?.incident_id || "Not provided"} · Timestamp: {analysis.incident?.timestamp || "Not provided"} · Session: {analysis.session?.id || "Direct"} · Fresh: {analysis.session?.is_fresh ? "True" : "False"}
-            </span>
+        <>
+          <div className="provenance-note" style={{ marginTop: "16px" }}>
+            <AlertCircle size={17} />
+            <div>
+              <strong>Backend Identifiers & Audit Metadata</strong>
+              <span>
+                Incident ID: {analysis.incident?.incident_id || "Not provided"} · Timestamp: {analysis.incident?.timestamp || "Not provided"} · Session: {analysis.session?.id || "Direct"} · Fresh: {analysis.session?.is_fresh ? "True" : "False"} · Commit: {BUILD_METADATA.commitSha}
+              </span>
+            </div>
           </div>
-        </div>
+          <div style={{ marginTop: "12px" }}>
+            <button className="text-action" onClick={() => setShowRawJson((prev) => !prev)}>
+              <Code size={13} className="mr-1" />
+              {showRawJson ? "Hide Raw API Payload" : "Inspect Raw API Payload (Technical Audit Proof)"}
+            </button>
+            {showRawJson && (
+              <pre className="raw-json-panel">
+                {JSON.stringify(analysis, null, 2)}
+              </pre>
+            )}
+          </div>
+        </>
       )}
       {!analysis && (
         <div className="provenance-note">
@@ -1005,7 +1243,22 @@ export default function Home() {
   const [active, setActive] = useState("workspace");
   const [notice, setNotice] = useState<Notice>(null);
   const [live, setLive] = useState<LiveWorkspace>(initialLiveWorkspace);
+  const [sessionId, setSessionId] = useState(() => `session-${Math.random().toString(36).substring(2, 9)}`);
+  const [isColdSession, setIsColdSession] = useState(true);
   const { data: authUser } = trpc.auth.me.useQuery();
+
+  const handleResetSession = () => {
+    setSessionId(`session-${Math.random().toString(36).substring(2, 9)}`);
+    setIsColdSession(true);
+    setLive((current) => ({
+      ...current,
+      analysis: null,
+      analysisState: { status: "idle" },
+      outcome: null,
+      outcomeState: { status: "idle" },
+    }));
+    setNotice({ type: "info", message: "Fresh cold-start session initialized. Prior React state cleared; ready for clean incident input." });
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -1017,7 +1270,10 @@ export default function Home() {
     return () => { cancelled = true; };
   }, []);
 
-  const onAnalysis = (state: BackendState, analysis: IncidentAnalysis | null = null) =>
+  const onAnalysis = (state: BackendState, analysis: IncidentAnalysis | null = null) => {
+    if (state.status === "success" && analysis) {
+      setIsColdSession(false);
+    }
     setLive((current) => ({
       ...current,
       analysisState: state,
@@ -1025,6 +1281,7 @@ export default function Home() {
       outcome: state.status === "loading" ? null : current.outcome,
       outcomeState: state.status === "loading" ? { status: "idle" } : current.outcomeState,
     }));
+  };
 
   const onOutcome = (state: BackendState, outcome: OutcomeResponse | null = null) =>
     setLive((current) => ({
@@ -1061,6 +1318,9 @@ export default function Home() {
                 onNotice={setNotice}
                 onNavigate={navigate}
                 live={live}
+                sessionId={sessionId}
+                isColdSession={isColdSession}
+                onResetSession={handleResetSession}
                 onAnalysis={onAnalysis}
                 onOutcome={onOutcome}
               />
@@ -1068,9 +1328,9 @@ export default function Home() {
             {active === "memory" && <MemoryExplorer onNotice={setNotice} />}
             {active === "provenance" && <Provenance analysis={live.analysis} onNotice={setNotice} />}
             <footer className="canvas-footer">
-              <span>MEMORA / PHASE 2.5</span>
-              <span>DECISION TRACEABILITY OVER DECISION THEATRE</span>
-              <span>v0.2 / SIBYL LOAD-BEARING PROOF</span>
+              <span>MEMORA / PHASE 4</span>
+              <span>OPERATIONAL INTELLIGENCE & COLD-START RECALL</span>
+              <span>v0.4 / SIBYL LOAD-BEARING PROOF</span>
             </footer>
           </div>
         </main>
