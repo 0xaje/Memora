@@ -9,7 +9,8 @@ Identifies:
 - Multi-dimensional Pattern Classification
 """
 
-from typing import List, Dict, Any, Optional
+from datetime import datetime, timezone
+from typing import List, Dict, Any, Optional, Tuple
 from pydantic import BaseModel, Field
 from memora.incidents.models import (
     IncidentFacts,
@@ -35,20 +36,52 @@ class PatternComparison(BaseModel):
     patterns_detected: List[HistoricalPatternDetail] = Field(default_factory=list)
     is_resolved_precedent: bool = False
     matched_location: str = ""
+    temporal_weight: float = 1.0
+    temporal_urgency: str = "Immediate (<24h)"
     summary: str = ""
 
 
 class HistoricalComparator:
     """
     Compares current incident facts with retrieved Sibyl Memory.
-    Enforces strict location relevance and clear separation between resolved and unresolved history.
+    Enforces strict location hierarchy and temporal decay weighting.
     """
 
+    FACILITY_ZONES = {
+        "perimeter": ["gate 1", "gate 2", "gate 3", "gate 4", "gate 5", "gate 7", "north perimeter", "south perimeter", "fence line", "checkpoint"],
+        "logistics": ["loading dock", "loading dock a", "loading dock b", "freight bay", "warehouse", "gate 3"],
+        "secure core": ["data center", "server room", "power substation", "generator yard"],
+        "public": ["main entrance", "visitor center", "north lot", "south lot", "main lobby"]
+    }
+
     @staticmethod
-    def _is_location_relevant(item_loc: Optional[str], target_loc: Optional[str]) -> bool:
+    def _compute_temporal_weight(ts_str: Optional[str]) -> Tuple[float, str]:
+        """Calculates temporal decay weight based on elapsed time since the historical event."""
+        if not ts_str:
+            return 1.0, "Immediate Active Shift (<24h)"
+        try:
+            cleaned = ts_str.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(cleaned)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            now = datetime.now(timezone.utc)
+            elapsed_hours = max(0.0, (now - dt).total_seconds() / 3600.0)
+            if elapsed_hours < 24.0:
+                return 1.0, "Immediate Active Shift (<24h)"
+            elif elapsed_hours < 168.0:
+                return 0.85, "Recent Tactical Threat (<7d)"
+            elif elapsed_hours < 720.0:
+                return 0.70, "Persistent Pattern (<30d)"
+            else:
+                return 0.50, "Historical Precedent (>30d)"
+        except Exception:
+            return 1.0, "Active Shift"
+
+    @classmethod
+    def _is_location_relevant(cls, item_loc: Optional[str], target_loc: Optional[str]) -> bool:
         """
         Validates if an item's location is relevant to the target incident location.
-        Enforces adversarial isolation between distinct gates/facilities (e.g. Gate 3 vs Gate 7).
+        Enforces hierarchical sector inheritance while preserving adversarial isolation between distinct gates.
         """
         if not item_loc or not target_loc:
             return False
@@ -56,10 +89,22 @@ class HistoricalComparator:
         l2 = target_loc.strip().lower()
         if l1 == l2:
             return True
-        # Facility wide or perimeter facility applies broadly
+
+        # Check explicit gate separation (e.g. Gate 3 vs Gate 7 MUST NOT cross-contaminate)
+        gate_match1 = [g for g in ["gate 1", "gate 2", "gate 3", "gate 4", "gate 5", "gate 7"] if g in l1]
+        gate_match2 = [g for g in ["gate 1", "gate 2", "gate 3", "gate 4", "gate 5", "gate 7"] if g in l2]
+        if gate_match1 and gate_match2 and gate_match1 != gate_match2:
+            return False
+
+        # Facility wide or perimeter applies broadly
         if "facility" in l1 or "perimeter" in l1:
             return True
-        # Explicit gate / building / sector isolation
+
+        # Hierarchical zone inheritance (e.g., Gate 3 and Loading Dock A in logistics sector)
+        for zone_name, places in cls.FACILITY_ZONES.items():
+            if any(p in l1 for p in places) and any(p in l2 for p in places):
+                return True
+
         return l1 in l2 or l2 in l1
 
     def compare(self, facts: IncidentFacts, memory: MemoryRetrievalResult) -> PatternComparison:
@@ -208,10 +253,20 @@ class HistoricalComparator:
 
         comparison.patterns_detected = patterns
 
+        # Temporal analysis across retrieved records
+        timestamps = [inc.get("timestamp") for inc in relevant_incidents if inc.get("timestamp")]
+        timestamps.extend([o.get("timestamp") for o in memory.previous_outcomes if o.get("timestamp")])
+        if timestamps:
+            most_recent_ts = sorted(timestamps, reverse=True)[0]
+            comparison.temporal_weight, comparison.temporal_urgency = self._compute_temporal_weight(most_recent_ts)
+        else:
+            comparison.temporal_weight, comparison.temporal_urgency = (1.0, "Immediate Active Shift (<24h)")
+
         # 5. Generate structured findings summary
         findings = []
         if comparison.is_recurrent:
             findings.append(f"Identified {recurrent_count} prior incident(s) at {facts.location}.")
+            findings.append(f"Temporal recency: {comparison.temporal_urgency} (weight: {comparison.temporal_weight}x).")
         if comparison.has_unresolved_prior_incident:
             findings.append(f"Found active unresolved prior incident(s): {', '.join(unresolved_ids) if unresolved_ids else 'General unresolved security risk'}.")
         elif comparison.is_resolved_precedent:

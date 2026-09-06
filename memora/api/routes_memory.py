@@ -85,11 +85,86 @@ def memory_search(
                 "message": f"Sibyl search failed: {sse}"
             }
         )
+
+
+@router.get("/tier")
+def get_tier_status(tenant_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Exposes official Sibyl storage tier status, soft cap consumption,
+    and tier capabilities directly from the Sibyl SDK.
+    """
+    try:
+        tid = tenant_id or sibyl_manager.tenant_id
+        client = sibyl_manager.get_client(tenant_id=tid)
+        status = client.free_tier_status()
+        current_tier = client.get_tier()
+        
+        tier_capabilities = {
+            "free": {
+                "name": "Sibyl Community Free",
+                "storage_limit": "5 MB Local SQLite Cap",
+                "fts5_indexing": True,
+                "multi_tier_architecture": True,
+                "cold_audit_journal": True,
+                "distributed_clustering": False
+            },
+            "pro": {
+                "name": "Sibyl Professional",
+                "storage_limit": "Uncapped Local / Cloud Persistent",
+                "fts5_indexing": True,
+                "multi_tier_architecture": True,
+                "cold_audit_journal": True,
+                "distributed_clustering": False
+            },
+            "enterprise": {
+                "name": "Sibyl Enterprise Fleet",
+                "storage_limit": "Uncapped Multi-Site Cluster",
+                "fts5_indexing": True,
+                "multi_tier_architecture": True,
+                "cold_audit_journal": True,
+                "distributed_clustering": True
+            }
+        }
+
+        return {
+            "current_tier": current_tier,
+            "status": status,
+            "tenant_id": tid,
+            "capabilities": tier_capabilities.get(current_tier, tier_capabilities["free"])
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "SIBYL_SERVICE_ERROR",
+                "message": f"Failed querying Sibyl tier status: {e}"
+            }
+        )
+
+
+@router.post("/tier")
+def set_tier(payload: Dict[str, str], tenant_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Escalates or switches the operational Sibyl storage tier.
+    """
+    requested_tier = payload.get("tier", "free").strip().lower()
+    if requested_tier not in ("free", "pro", "enterprise"):
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "VALIDATION_ERROR", "message": "Tier must be 'free', 'pro', or 'enterprise'."}
+        )
+    try:
+        tid = tenant_id or sibyl_manager.tenant_id
+        client = sibyl_manager.get_client(tenant_id=tid)
+        client.set_tier(requested_tier)
+        sibyl_manager.tier = requested_tier
+        return {
+            "status": "success",
+            "active_tier": client.get_tier(),
+            "message": f"Sibyl storage tier updated to '{requested_tier}'."
+        }
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail={
-                "code": "INTERNAL_SERVER_ERROR",
-                "message": str(e)
-            }
+            detail={"code": "TIER_UPDATE_ERROR", "message": str(e)}
         )

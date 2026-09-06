@@ -31,35 +31,43 @@ class FactExtractor:
     ]
 
     ENTITY_PATTERNS = [
-        ("delivery vehicle", ["delivery vehicle", "van", "truck", "courier van", "delivery truck", "delivery van", "maintenance truck"]),
-        ("unauthorized vehicle", ["vehicle", "car", "sedan", "suv", "pickup"]),
-        ("unidentified person", ["person", "individual", "trespasser", "intruder", "pedestrian", "subject"]),
-        ("unattended package", ["package", "bag", "box", "briefcase", "container", "backpack"])
+        ("delivery vehicle", ["delivery vehicle", "van", "truck", "courier van", "delivery truck", "delivery van", "maintenance truck", "box truck", "flatbed", "freight van"]),
+        ("unauthorized vehicle", ["vehicle", "car", "sedan", "suv", "pickup", "pickup truck", "automobile", "motorcycle"]),
+        ("unidentified person", ["person", "individual", "trespasser", "intruder", "pedestrian", "subject", "prowler"]),
+        ("unattended package", ["package", "bag", "box", "briefcase", "container", "backpack", "parcel"])
     ]
 
     INDICATOR_PATTERNS = [
-        ("suspicious activity", ["suspicious", "unusual", "loitering", "unauthorized", "unattended", "lingering"]),
+        ("suspicious activity", ["suspicious", "unusual", "loitering", "unauthorized", "unattended", "lingering", "idling"]),
         ("repeat occurrence", ["again", "similar", "repeat", "recurrent", "second time", "third time", "seen earlier", "same "]),
-        ("perimeter breach", ["breach", "fence", "barrier", "unauthorized entry", "climbing"]),
-        ("surveillance avoidance", ["avoiding camera", "obscured plate", "blind spot", "hood up", "evading"])
+        ("perimeter breach", ["breach", "fence", "barrier", "unauthorized entry", "climbing", "tailgating", "forced entry", "tampered gate"]),
+        ("surveillance avoidance", ["avoiding camera", "obscured plate", "blind spot", "hood up", "evading", "camera avoidance", "mask"])
     ]
 
     TIME_PATTERNS = [
         re.compile(r"\b(\d{1,2}:\d{2}(?:\s*(?:am|pm|hrs|hours))?)\b", re.IGNORECASE),
         re.compile(r"\b(?:approximately|around|at)\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b", re.IGNORECASE),
+        re.compile(r"\b(yesterday\s+(?:at\s+)?\d{1,2}(?::\d{2})?(?:\s*(?:am|pm))?)\b", re.IGNORECASE),
+        re.compile(r"\b(\d+\s+hours?\s+ago|\d+\s+mins?\s+ago)\b", re.IGNORECASE),
         re.compile(r"\b(morning|afternoon|evening|night|midnight|dawn|dusk)\b", re.IGNORECASE)
     ]
 
     DURATION_PATTERNS = [
         re.compile(r"\b(?:for\s+)?(\d+\s*(?:minutes|hours|mins|seconds))\b", re.IGNORECASE),
-        re.compile(r"\b(several\s+minutes|briefly|prolonged\s+period|few\s+minutes)\b", re.IGNORECASE)
+        re.compile(r"\b(several\s+minutes|briefly|prolonged\s+period|few\s+minutes|over\s+\d+\s+minutes)\b", re.IGNORECASE)
+    ]
+
+    PLATE_PATTERNS = [
+        re.compile(r"\b(?:license\s+plate|plate\s+number|license|plate|tag|reg|registration)[:\s#]+([A-Z0-9]{2,4}[- ]?[A-Z0-9]{2,5})\b", re.IGNORECASE),
+        re.compile(r"\b([A-Z]{2,4}[- ][0-9]{3,4})\b", re.IGNORECASE),
+        re.compile(r"\b([0-9][A-Z]{3}[0-9]{3})\b", re.IGNORECASE)
     ]
 
     REPORTER_PATTERNS = [
         re.compile(r"\b(one\s+of\s+the\s+guards|security\s+guard|guard|patrol\s+officer|operator|dispatch|camera\s+operator|sensor|perimeter\s+alarm|field\s+officer)\b", re.IGNORECASE)
     ]
 
-    COLOR_PATTERNS = ["white", "black", "silver", "gray", "grey", "red", "blue", "dark", "unmarked"]
+    COLOR_PATTERNS = ["white", "black", "silver", "gray", "grey", "red", "blue", "dark", "unmarked", "green", "yellow"]
 
     def extract(self, raw_text: str, explicit_location: str = None, explicit_type: str = None) -> IncidentFacts:
         text = raw_text.strip()
@@ -118,27 +126,52 @@ class FactExtractor:
             if re.search(rf"\b{color}\b", lower_text):
                 entity_attributes["color"] = color
                 break
-        if "van" in lower_text:
+
+        # License plate extraction
+        detected_plate = None
+        for p_pattern in self.PLATE_PATTERNS:
+            p_match = p_pattern.search(text)
+            if p_match:
+                detected_plate = p_match.group(1).upper()
+                entity_attributes["license_plate"] = detected_plate
+                break
+
+        if "box truck" in lower_text:
+            entity_attributes["vehicle_type"] = "box truck"
+        elif "flatbed" in lower_text:
+            entity_attributes["vehicle_type"] = "flatbed"
+        elif "van" in lower_text:
             entity_attributes["vehicle_type"] = "van"
+        elif "courier" in lower_text:
+            entity_attributes["vehicle_type"] = "courier vehicle"
+        elif "pickup" in lower_text:
+            entity_attributes["vehicle_type"] = "pickup truck"
         elif "truck" in lower_text:
             entity_attributes["vehicle_type"] = "truck"
         elif "sedan" in lower_text:
             entity_attributes["vehicle_type"] = "sedan"
+        elif "motorcycle" in lower_text:
+            entity_attributes["vehicle_type"] = "motorcycle"
         elif "car" in lower_text or "suv" in lower_text:
             entity_attributes["vehicle_type"] = "automobile"
 
-        if any(w in lower_text for w in ["again", "same", "returned", "second time"]):
+        if any(w in lower_text for w in ["again", "same", "returned", "second time", "recurrent"]):
             entity_attributes["is_recurrent_mention"] = True
+
+        if any(w in lower_text for w in ["tailgating", "tailgate", "followed vehicle"]):
+            entity_attributes["breach_method"] = "tailgating"
+        elif any(w in lower_text for w in ["fence", "jumped", "climbed", "barrier"]):
+            entity_attributes["breach_method"] = "perimeter_barrier_breach"
 
         # 8. Explicit Unknowns
         unknowns: List[str] = []
-        if ("vehicle" in lower_text or "van" in lower_text or "truck" in lower_text):
-            if not any(plate_word in lower_text for plate_word in ["plate", "license", "registration", "tag"]):
+        if any(v in lower_text for v in ["vehicle", "van", "truck", "car", "suv", "automobile"]):
+            if not detected_plate and not any(plate_word in lower_text for plate_word in ["plate", "license", "registration", "tag"]):
                 unknowns.append("License plate / registration unverified")
             if not any(driver_word in lower_text for driver_word in ["driver identified", "driver known", "name:", "id:"]):
                 unknowns.append("Driver / operator identity unverified")
 
-        if not any(intent_word in lower_text for intent_word in ["authorized delivery", "work order", "scheduled", "permit"]):
+        if not any(intent_word in lower_text for intent_word in ["authorized delivery", "work order", "scheduled", "permit", "manifest"]):
             unknowns.append("Specific operational authorization unconfirmed")
 
         # 9. Incident Type

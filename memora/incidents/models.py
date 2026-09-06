@@ -169,6 +169,8 @@ class PatternInferenceSummary(BaseModel):
     actionable_lessons_details: List[ActionableLesson] = Field(default_factory=list)
     patterns_detected: List[HistoricalPatternDetail] = Field(default_factory=list)
     is_resolved_precedent: bool = False
+    temporal_weight: float = 1.0
+    temporal_urgency: str = "Immediate (<24h)"
     summary: str = ""
 
 

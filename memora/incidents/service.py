@@ -243,6 +243,8 @@ class IncidentService:
             actionable_lessons_details=pattern.actionable_lessons_details,
             patterns_detected=pattern.patterns_detected,
             is_resolved_precedent=pattern.is_resolved_precedent,
+            temporal_weight=pattern.temporal_weight,
+            temporal_urgency=pattern.temporal_urgency,
             summary=pattern.summary
         )
 

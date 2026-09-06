@@ -13,6 +13,8 @@ from memora.memory.client import sibyl_manager
 from memora.api.routes_incidents import router as incidents_router
 from memora.api.routes_outcomes import router as outcomes_router
 from memora.api.routes_memory import router as memory_router
+from memora.api.routes_reports import router as reports_router
+from memora.api.routes_audit import router as audit_router
 
 logging.basicConfig(
     level=settings.LOG_LEVEL,
@@ -43,7 +45,7 @@ def create_app() -> FastAPI:
             "AI operational memory agent for security operations teams. "
             "Built with load-bearing persistent Sibyl Memory."
         ),
-        version="0.1.0",
+        version="0.2.0",
         lifespan=lifespan
     )
 
@@ -68,6 +70,8 @@ def create_app() -> FastAPI:
     app.include_router(incidents_router)
     app.include_router(outcomes_router)
     app.include_router(memory_router)
+    app.include_router(reports_router)
+    app.include_router(audit_router)
 
     @app.get("/health", tags=["System"])
     def health_check():

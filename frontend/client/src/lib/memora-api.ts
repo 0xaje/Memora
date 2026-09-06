@@ -161,6 +161,59 @@ export type OutcomeResponse = {
   message?: string;
 };
 
+export type ShiftHandoverReport = {
+  shift_period_hours: number;
+  generated_at: string;
+  tenant_id: string;
+  threat_level: string;
+  total_incidents_recorded: number;
+  active_unresolved_threats: Array<{ risk_id: string; location: string; severity: string; description: string }>;
+  failed_mitigations_to_avoid: Array<{ outcome_id: string; incident_id: string; failed_action: string; observed_result: string; unresolved_reason?: string }>;
+  operational_rules_active: Array<{ lesson_id: string; location?: string; operational_rule: string }>;
+  supervisor_directives: string[];
+};
+
+export type EventProof = {
+  event_id: string;
+  timestamp: string;
+  action: string;
+  evaluated_entity: Record<string, unknown>;
+  event_hash: string;
+  chain_hash: string;
+};
+
+export type AuditExport = {
+  export_id: string;
+  tenant_id: string;
+  generated_at: string;
+  total_events: number;
+  compliance_framework: string;
+  cryptographic_root_digest: string;
+  chain_verified: boolean;
+  events: EventProof[];
+};
+
+export type TierStatusResponse = {
+  current_tier: string;
+  tenant_id: string;
+  status: {
+    tier?: string;
+    db_size_bytes?: number;
+    soft_cap_bytes?: number;
+    pct_used?: number;
+    uncapped?: boolean;
+    upgrade_url?: string;
+  };
+  capabilities: {
+    name: string;
+    storage_limit: string;
+    fts5_indexing: boolean;
+    multi_tier_architecture: boolean;
+    cold_audit_journal: boolean;
+    distributed_clustering: boolean;
+  };
+};
+
 const API_BASE_URL = (import.meta.env.VITE_MEMORA_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
 function assertObject(value: unknown, endpoint: string): Record<string, unknown> {
@@ -193,10 +246,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const memoraApi = {
   health: () => request<HealthResponse>("/health"),
-  memoryStatus: () => request<MemoryStatusResponse>("/api/memory/status"),
+  memoryStatus: (tenantId?: string) => request<MemoryStatusResponse>(`/api/memory/status${tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : ""}`),
   analyzeIncident: (body: IncidentRequest) => request<IncidentAnalysis>("/api/incidents/analyze", { method: "POST", body: JSON.stringify(body) }),
-  searchMemory: (query: string) => request<MemorySearchResponse>(`/api/memory/search?q=${encodeURIComponent(query)}`),
+  searchMemory: (query: string, tenantId?: string) => request<MemorySearchResponse>(`/api/memory/search?q=${encodeURIComponent(query)}${tenantId ? `&tenant_id=${encodeURIComponent(tenantId)}` : ""}`),
   recordOutcome: (body: OutcomeRequest) => request<OutcomeResponse>("/api/outcomes", { method: "POST", body: JSON.stringify(body) }),
+  shiftHandover: (hours: number = 24, tenantId?: string) => request<ShiftHandoverReport>(`/api/reports/shift-handover?hours=${hours}${tenantId ? `&tenant_id=${encodeURIComponent(tenantId)}` : ""}`),
+  exportAudit: (limit: number = 100, tenantId?: string) => request<AuditExport>(`/api/audit/export?limit=${limit}${tenantId ? `&tenant_id=${encodeURIComponent(tenantId)}` : ""}`),
+  getTierStatus: (tenantId?: string) => request<TierStatusResponse>(`/api/memory/tier${tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : ""}`),
+  setTier: (tier: string, tenantId?: string) => request<{ status: string; active_tier: string }>(`/api/memory/tier${tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : ""}`, { method: "POST", body: JSON.stringify({ tier }) }),
 };
 
 export const memoraApiConfig = { baseUrl: API_BASE_URL };

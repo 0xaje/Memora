@@ -8,25 +8,31 @@ import {
   type MemorySearchResponse,
   type MemoryStatusResponse,
   type OutcomeResponse,
+  type ShiftHandoverReport,
 } from "@/lib/memora-api";
 import {
   Activity,
   AlertCircle,
   ArrowRight,
   BrainCircuit,
+  Building2,
   Check,
   ChevronDown,
   ClipboardCheck,
   Clock3,
   Code,
   Database,
+  Download,
   FileSearch,
+  FileText,
   Grid2X2,
   HelpCircle,
   History,
   Info,
   LockKeyhole,
   Menu,
+  Mic,
+  MicOff,
   Network,
   PanelRight,
   Plus,
@@ -45,6 +51,12 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { startLogin } from "@/const";
+
+export const FACILITIES = [
+  { id: "00000000-0000-0000-0000-000000000001", name: "Facility Alpha (Perimeter HQ)", code: "ALPHA" },
+  { id: "00000000-0000-0000-0000-000000000002", name: "Facility Beta (Logistics Docks)", code: "BETA" },
+  { id: "00000000-0000-0000-0000-000000000003", name: "Facility Gamma (Secure Core)", code: "GAMMA" },
+] as const;
 
 export const workspaceContractState = {
   incidentAnalysis: "unavailable",
@@ -152,7 +164,23 @@ function StatusChip({ label, tone = "neutral" }: { label: string; tone?: "neutra
   return <span className={cn("status-chip", `status-chip--${tone}`)}><span className="status-chip__dot" />{label}</span>;
 }
 
-function Header({ active, onNavigate, onNewIncident, memoryState }: { active: string; onNavigate: (id: string) => void; onNewIncident: () => void; memoryState: BackendState }) {
+function Header({
+  active,
+  onNavigate,
+  onNewIncident,
+  memoryState,
+  tenantId,
+  onTenantChange,
+  onOpenHandover,
+}: {
+  active: string;
+  onNavigate: (id: string) => void;
+  onNewIncident: () => void;
+  memoryState: BackendState;
+  tenantId: string;
+  onTenantChange: (id: string) => void;
+  onOpenHandover: () => void;
+}) {
   const { user, loading, logout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const { label: sibylLabel, tone: sibylTone } = getSibylStatusCopy(memoryState);
@@ -169,6 +197,41 @@ function Header({ active, onNavigate, onNewIncident, memoryState }: { active: st
         })}
       </nav>
       <div className="topbar__actions">
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <Building2 size={13} style={{ color: "#79edbe" }} />
+          <select
+            value={tenantId}
+            onChange={(e) => onTenantChange(e.target.value)}
+            style={{
+              background: "rgba(18, 26, 43, 0.9)",
+              color: "#e2e8f0",
+              border: "1px solid rgba(140, 175, 225, 0.25)",
+              borderRadius: "4px",
+              fontSize: "11px",
+              padding: "3px 6px",
+              fontFamily: "IBM Plex Mono, monospace",
+              cursor: "pointer",
+              outline: "none",
+            }}
+            title="Select facility partition (multi-tenant isolation)"
+            aria-label="Select facility partition"
+          >
+            {FACILITIES.map((f) => (
+              <option key={f.id} value={f.id} style={{ background: "#0b101b", color: "#e2e8f0" }}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button
+          className="outline-action"
+          style={{ fontSize: "11px", padding: "3px 8px", display: "flex", alignItems: "center", gap: "5px" }}
+          onClick={onOpenHandover}
+          title="View 24-hour shift handover digest"
+        >
+          <FileText size={13} />
+          <span>Handover</span>
+        </button>
         <StatusChip label={sibylLabel} tone={sibylTone} />
         <button className="header-icon-button" aria-label="Show system status"><Activity size={16} /></button>
         <button className="user-button" onClick={() => setMenuOpen((value) => !value)} aria-expanded={menuOpen}>
@@ -197,14 +260,83 @@ function BlueprintRail({ active, onNavigate }: { active: string; onNavigate: (id
   </aside>;
 }
 
-function Intake({ onNotice, onAnalysis }: { onNotice: (notice: Notice) => void; onAnalysis: (state: BackendState, analysis?: IncidentAnalysis | null) => void }) {
+function Intake({
+  onNotice,
+  onAnalysis,
+  tenantId,
+}: {
+  onNotice: (notice: Notice) => void;
+  onAnalysis: (state: BackendState, analysis?: IncidentAnalysis | null) => void;
+  tenantId: string;
+}) {
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
   const [incidentType, setIncidentType] = useState("");
   const [focused, setFocused] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
   const requestVersion = useRef(0);
   const canSubmit = description.trim().length >= 5;
+
+  const toggleVoiceDictation = () => {
+    if (isListening) {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      setIsListening(false);
+      return;
+    }
+
+    const SpeechRecognition =
+      (window as unknown as { SpeechRecognition?: any; webkitSpeechRecognition?: any }).SpeechRecognition ||
+      (window as unknown as { SpeechRecognition?: any; webkitSpeechRecognition?: any }).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      onNotice({
+        type: "error",
+        message: "Web Speech API is not supported in this browser. Please type directly or use Chrome/Edge.",
+      });
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
+
+      recognition.onresult = (event: any) => {
+        let transcript = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (event.results[i].isFinal) {
+            transcript += event.results[i][0].transcript;
+          }
+        }
+        if (transcript.trim()) {
+          setDescription((prev) => (prev ? `${prev.trim()} ${transcript.trim()}` : transcript.trim()));
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        setIsListening(false);
+        onNotice({ type: "error", message: `Speech recognition: ${event.error || "unavailable"}` });
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognition.start();
+      recognitionRef.current = recognition;
+      setIsListening(true);
+      onNotice({ type: "info", message: "Listening... Speak incident details clearly." });
+    } catch {
+      setIsListening(false);
+      onNotice({ type: "error", message: "Could not initialize voice dictation in this browser." });
+    }
+  };
+
   const submit = async () => {
     if (!canSubmit) {
       onNotice({ type: "error", message: "Describe the incident in at least five characters before requesting analysis." });
@@ -214,7 +346,12 @@ function Intake({ onNotice, onAnalysis }: { onNotice: (notice: Notice) => void; 
     setSubmitting(true);
     onAnalysis({ status: "loading" });
     try {
-      const analysis = await memoraApi.analyzeIncident({ raw_text: description.trim(), location: location.trim() || undefined, incident_type: incidentType.trim() || undefined });
+      const analysis = await memoraApi.analyzeIncident({
+        raw_text: description.trim(),
+        location: location.trim() || undefined,
+        incident_type: incidentType.trim() || undefined,
+        tenant_id: tenantId,
+      });
       if (requestId !== requestVersion.current) return;
       onAnalysis({ status: "success" }, analysis);
       onNotice({ type: "info", message: analysis.decision_changed ? "Memory changed the decision. Review the retrieved evidence and provenance below." : "Incident analyzed by the Memora backend." });
@@ -236,7 +373,26 @@ function Intake({ onNotice, onAnalysis }: { onNotice: (notice: Notice) => void; 
         <div className="field field--primary">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", flexWrap: "wrap", gap: "6px" }}>
             <Label htmlFor="incident-description" style={{ margin: 0 }}>Incident description <span>*</span></Label>
-            <div style={{ display: "flex", gap: "6px" }}>
+            <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+              <button
+                type="button"
+                onClick={toggleVoiceDictation}
+                className={cn("cold-start-bar__btn", isListening && "pulse-recording")}
+                style={{
+                  fontSize: "9px",
+                  padding: "2px 8px",
+                  background: isListening ? "rgba(255, 85, 85, 0.25)" : "rgba(121, 237, 190, 0.15)",
+                  borderColor: isListening ? "rgba(255, 85, 85, 0.5)" : "rgba(121, 237, 190, 0.3)",
+                  color: isListening ? "#ff5555" : "#79edbe",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                }}
+                title="Browser-native voice incident dictation (Web Speech API)"
+              >
+                {isListening ? <MicOff size={11} /> : <Mic size={11} />}
+                {isListening ? "Listening…" : "Voice Dictate"}
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -266,7 +422,7 @@ function Intake({ onNotice, onAnalysis }: { onNotice: (notice: Notice) => void; 
             </div>
           </div>
           <Textarea id="incident-description" placeholder="Describe the incident you need to analyze…" value={description} onChange={(event) => setDescription(event.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} />
-          <div className="field-hint">Natural language accepted · no schema knowledge required</div>
+          <div className="field-hint">Natural language accepted · no schema knowledge required · voice dictation enabled</div>
         </div>
         <div className="intake-form__row"><div className="field"><Label htmlFor="incident-location">Location <span className="optional">OPTIONAL</span></Label><Input id="incident-location" placeholder="e.g. Gate 3" value={location} onChange={(event) => setLocation(event.target.value)} /></div><div className="field"><Label htmlFor="incident-type">Incident type <span className="optional">OPTIONAL</span></Label><Input id="incident-type" placeholder="e.g. suspicious_vehicle" value={incidentType} onChange={(event) => setIncidentType(event.target.value)} /></div></div>
         <div className="form-actions"><span className="form-contract"><span className="contract-dot" />POST /api/incidents/analyze <span className="contract-muted">· backend authoritative</span></span><Button onClick={submit} className="analyze-button" disabled={submitting}>{submitting ? <Clock3 size={15} className="animate-spin" /> : <Sparkles size={15} />}{submitting ? "Analyzing…" : "Analyze incident"}<ArrowRight size={15} /></Button></div>
@@ -493,10 +649,12 @@ function OutcomeSection({
   live,
   onNotice,
   onOutcome,
+  tenantId,
 }: {
   live: LiveWorkspace;
   onNotice: (notice: Notice) => void;
   onOutcome: (state: BackendState, outcome?: OutcomeResponse | null) => void;
+  tenantId: string;
 }) {
   const [actionTaken, setActionTaken] = useState("");
   const [observedResult, setObservedResult] = useState("");
@@ -527,6 +685,7 @@ function OutcomeSection({
         is_resolved: isResolved,
         unresolved_reason: !isResolved && unresolvedReason.trim() ? unresolvedReason.trim() : undefined,
         operational_lesson: operationalLesson.trim() || undefined,
+        tenant_id: tenantId,
       });
       onOutcome({ status: "success" }, response);
       onNotice({
@@ -876,6 +1035,7 @@ function Workspace({
   onResetSession,
   onAnalysis,
   onOutcome,
+  tenantId,
 }: {
   onNotice: (notice: Notice) => void;
   onNavigate: (id: string) => void;
@@ -885,6 +1045,7 @@ function Workspace({
   onResetSession: () => void;
   onAnalysis: (state: BackendState, analysis?: IncidentAnalysis | null) => void;
   onOutcome: (state: BackendState, outcome?: OutcomeResponse | null) => void;
+  tenantId: string;
 }) {
   return (
     <>
@@ -916,7 +1077,7 @@ function Workspace({
         memoryState={live.memoryState}
         onResetSession={onResetSession}
       />
-      <Intake onNotice={onNotice} onAnalysis={onAnalysis} />
+      <Intake onNotice={onNotice} onAnalysis={onAnalysis} tenantId={tenantId} />
       <div className="section-row-label">
         <span>ANALYSIS OUTPUT</span>
         <span className="section-row-label__line" />
@@ -1082,7 +1243,7 @@ function Workspace({
             {live.outcome ? "LEARNING RECORDED" : live.analysis ? "READY FOR OUTCOME" : "LOCKED UNTIL DECISION"}
           </span>
         </SectionKicker>
-        <OutcomeSection live={live} onNotice={onNotice} onOutcome={onOutcome} />
+        <OutcomeSection live={live} onNotice={onNotice} onOutcome={onOutcome} tenantId={tenantId} />
       </section>
       <section className="ai-strip">
         <div className="ai-strip__icon"><BrainCircuit size={18} /></div>
@@ -1098,7 +1259,7 @@ function Workspace({
   );
 }
 
-function MemoryExplorer({ onNotice }: { onNotice: (notice: Notice) => void }) {
+function MemoryExplorer({ onNotice, tenantId }: { onNotice: (notice: Notice) => void; tenantId: string }) {
   const [query, setQuery] = useState("");
   const [state, setState] = useState<BackendState>({ status: "idle" });
   const [results, setResults] = useState<MemorySearchResponse | null>(null);
@@ -1108,7 +1269,7 @@ function MemoryExplorer({ onNotice }: { onNotice: (notice: Notice) => void }) {
     const requestId = ++requestVersion.current;
     setState({ status: "loading" }); setResults(null);
     try {
-      const response = await memoraApi.searchMemory(query.trim());
+      const response = await memoraApi.searchMemory(query.trim(), tenantId);
       if (requestId !== requestVersion.current) return;
       setResults(response);
       setState({ status: response.results.length ? "success" : "empty" });
@@ -1165,8 +1326,33 @@ function MemoryExplorer({ onNotice }: { onNotice: (notice: Notice) => void }) {
   );
 }
 
-function Provenance({ analysis, onNotice }: { analysis: IncidentAnalysis | null; onNotice: (notice: Notice) => void }) {
+function Provenance({ analysis, onNotice, tenantId }: { analysis: IncidentAnalysis | null; onNotice: (notice: Notice) => void; tenantId: string }) {
   const [showRawJson, setShowRawJson] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const handleExportAudit = async () => {
+    setExporting(true);
+    try {
+      const data = await memoraApi.exportAudit(100, tenantId);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `memora_audit_export_${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      onNotice({
+        type: "info",
+        message: `Exported ${data.total_events} Sibyl COLD-tier journal events with SHA-256 integrity hash verification.`,
+      });
+    } catch (err) {
+      onNotice({ type: "error", message: apiMessage(err) });
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const steps = useMemo(() => {
     if (!analysis) {
@@ -1287,17 +1473,37 @@ function Provenance({ analysis, onNotice }: { analysis: IncidentAnalysis | null;
               </span>
             </div>
           </div>
-          <div style={{ marginTop: "12px" }}>
+          <div style={{ marginTop: "12px", display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
             <button className="text-action" onClick={() => setShowRawJson((prev) => !prev)}>
               <Code size={13} className="mr-1" />
               {showRawJson ? "Hide Raw API Payload" : "Inspect Raw API Payload (Technical Audit Proof)"}
             </button>
-            {showRawJson && (
-              <pre className="raw-json-panel">
-                {JSON.stringify(analysis, null, 2)}
-              </pre>
-            )}
+            <button
+              className="cold-start-bar__btn"
+              disabled={exporting}
+              onClick={handleExportAudit}
+              style={{
+                fontSize: "10px",
+                padding: "3px 10px",
+                background: "rgba(121, 237, 190, 0.15)",
+                borderColor: "rgba(121, 237, 190, 0.4)",
+                color: "#79edbe",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "5px",
+                cursor: "pointer",
+              }}
+              title="Download cryptographically chained SHA-256 audit log of Sibyl COLD journal events"
+            >
+              <Download size={12} />
+              {exporting ? "Exporting…" : "Export Compliance Audit (SHA-256)"}
+            </button>
           </div>
+          {showRawJson && (
+            <pre className="raw-json-panel">
+              {JSON.stringify(analysis, null, 2)}
+            </pre>
+          )}
         </>
       )}
       {!analysis && (
@@ -1319,6 +1525,10 @@ export default function Home() {
   const [live, setLive] = useState<LiveWorkspace>(initialLiveWorkspace);
   const [sessionId, setSessionId] = useState(() => `session-${Math.random().toString(36).substring(2, 9)}`);
   const [isColdSession, setIsColdSession] = useState(true);
+  const [tenantId, setTenantId] = useState<string>(FACILITIES[0].id);
+  const [handoverOpen, setHandoverOpen] = useState(false);
+  const [handoverLoading, setHandoverLoading] = useState(false);
+  const [handoverReport, setHandoverReport] = useState<ShiftHandoverReport | null>(null);
   const { data: authUser } = trpc.auth.me.useQuery();
 
   const handleResetSession = () => {
@@ -1332,6 +1542,29 @@ export default function Home() {
       outcomeState: { status: "idle" },
     }));
     setNotice({ type: "info", message: "Fresh cold-start session initialized. Prior React state cleared; ready for clean incident input." });
+  };
+
+  const handleTenantChange = (newTenantId: string) => {
+    setTenantId(newTenantId);
+    const facility = FACILITIES.find((f) => f.id === newTenantId);
+    setNotice({
+      type: "info",
+      message: `Switched facility partition to ${facility?.name || newTenantId}. Operational memory and incidents are strictly isolated.`,
+    });
+    handleResetSession();
+  };
+
+  const handleOpenHandover = async () => {
+    setHandoverOpen(true);
+    setHandoverLoading(true);
+    try {
+      const report = await memoraApi.shiftHandover(24, tenantId);
+      setHandoverReport(report);
+    } catch (err) {
+      setNotice({ type: "error", message: apiMessage(err) });
+    } finally {
+      setHandoverLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -1373,6 +1606,9 @@ export default function Home() {
         active={active}
         onNavigate={navigate}
         memoryState={live.memoryState}
+        tenantId={tenantId}
+        onTenantChange={handleTenantChange}
+        onOpenHandover={handleOpenHandover}
         onNewIncident={() => {
           navigate("workspace");
           setTimeout(() => document.getElementById("intake")?.scrollIntoView({ behavior: "smooth" }), 50);
@@ -1397,14 +1633,15 @@ export default function Home() {
                 onResetSession={handleResetSession}
                 onAnalysis={onAnalysis}
                 onOutcome={onOutcome}
+                tenantId={tenantId}
               />
             )}
-            {active === "memory" && <MemoryExplorer onNotice={setNotice} />}
-            {active === "provenance" && <Provenance analysis={live.analysis} onNotice={setNotice} />}
+            {active === "memory" && <MemoryExplorer onNotice={setNotice} tenantId={tenantId} />}
+            {active === "provenance" && <Provenance analysis={live.analysis} onNotice={setNotice} tenantId={tenantId} />}
             <footer className="canvas-footer">
-              <span>MEMORA / PHASE 4</span>
+              <span>MEMORA / PHASE 6</span>
               <span>OPERATIONAL INTELLIGENCE & COLD-START RECALL</span>
-              <span>v0.4 / SIBYL LOAD-BEARING PROOF</span>
+              <span>v0.6 / SIBYL LOAD-BEARING PROOF</span>
             </footer>
           </div>
         </main>
@@ -1414,6 +1651,128 @@ export default function Home() {
           <div className="notice__icon">{notice.type === "error" ? <X size={16} /> : <Info size={16} />}</div>
           <span>{notice.message}</span>
           <button onClick={dismiss} aria-label="Dismiss notice"><X size={14} /></button>
+        </div>
+      )}
+      {handoverOpen && (
+        <div className="modal-backdrop" onClick={() => setHandoverOpen(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "640px", width: "92%" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "14px" }}>
+              <div>
+                <span className="micro-label" style={{ color: "#79edbe" }}>OPERATIONAL HANDOVER</span>
+                <h2 style={{ fontSize: "18px", margin: "2px 0 0", color: "#ffffff", fontWeight: 700 }}>24-Hour Shift Handover Digest</h2>
+                <div style={{ fontSize: "11px", color: "#8eaee1", fontFamily: "IBM Plex Mono, monospace", marginTop: "4px" }}>
+                  FACILITY: {FACILITIES.find((f) => f.id === tenantId)?.name || tenantId}
+                </div>
+              </div>
+              <button onClick={() => setHandoverOpen(false)} className="outline-action" style={{ padding: "4px 8px" }} aria-label="Close modal">
+                <X size={15} />
+              </button>
+            </div>
+
+            {handoverLoading ? (
+              <div style={{ padding: "30px", textAlign: "center", color: "#8eaee1", fontSize: "13px" }}>
+                <Clock3 size={20} className="animate-spin" style={{ margin: "0 auto 10px" }} />
+                Compiling shift handover digest from Sibyl Memory…
+              </div>
+            ) : handoverReport ? (
+              <div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "8px", marginBottom: "16px" }}>
+                  <div style={{ background: "rgba(255,255,255,0.03)", padding: "10px", borderRadius: "4px", border: "1px solid rgba(140, 175, 225, 0.15)" }}>
+                    <div className="micro-label">INCIDENTS</div>
+                    <div style={{ fontSize: "20px", fontWeight: 700, color: "#ffffff" }}>{handoverReport.total_incidents_recorded}</div>
+                  </div>
+                  <div style={{ background: "rgba(255, 85, 85, 0.05)", padding: "10px", borderRadius: "4px", border: "1px solid rgba(255, 85, 85, 0.2)" }}>
+                    <div className="micro-label" style={{ color: "#ff8b8b" }}>THREATS</div>
+                    <div style={{ fontSize: "20px", fontWeight: 700, color: "#ff8b8b" }}>{handoverReport.active_unresolved_threats.length}</div>
+                  </div>
+                  <div style={{ background: "rgba(255, 184, 108, 0.05)", padding: "10px", borderRadius: "4px", border: "1px solid rgba(255, 184, 108, 0.2)" }}>
+                    <div className="micro-label" style={{ color: "#ffb86c" }}>FAILED ACTIONS</div>
+                    <div style={{ fontSize: "20px", fontWeight: 700, color: "#ffb86c" }}>{handoverReport.failed_mitigations_to_avoid.length}</div>
+                  </div>
+                  <div style={{ background: "rgba(121, 237, 190, 0.05)", padding: "10px", borderRadius: "4px", border: "1px solid rgba(121, 237, 190, 0.2)" }}>
+                    <div className="micro-label" style={{ color: "#79edbe" }}>RULES</div>
+                    <div style={{ fontSize: "20px", fontWeight: 700, color: "#79edbe" }}>{handoverReport.operational_rules_active.length}</div>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "12px", maxHeight: "360px", overflowY: "auto" }}>
+                  <div>
+                    <h4 style={{ fontSize: "12px", color: "#ff8b8b", margin: "0 0 6px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                      Active & Unresolved Threats ({handoverReport.active_unresolved_threats.length})
+                    </h4>
+                    {handoverReport.active_unresolved_threats.length === 0 ? (
+                      <div style={{ fontSize: "11px", color: "#6272a4" }}>No unresolved threats currently flagged in this facility window.</div>
+                    ) : (
+                      <div className="evidence-stack">
+                        {handoverReport.active_unresolved_threats.map((threat, idx) => (
+                          <div className="evidence-row" key={idx} style={{ borderColor: "rgba(255, 85, 85, 0.2)" }}>
+                            <span className="evidence-tag" style={{ background: "rgba(255, 85, 85, 0.2)", color: "#ff8b8b" }}>{threat.severity || "THREAT"}</span>
+                            <div>
+                              <span style={{ color: "#f8f8f2", fontSize: "12px", display: "block" }}>{threat.description}</span>
+                              <small style={{ color: "#8eaee1", fontSize: "10px", fontFamily: "IBM Plex Mono, monospace" }}>Location: {threat.location} · ID: {threat.risk_id}</small>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <h4 style={{ fontSize: "12px", color: "#ffb86c", margin: "0 0 6px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                      Failed Mitigations to Avoid Repeating ({handoverReport.failed_mitigations_to_avoid.length})
+                    </h4>
+                    {handoverReport.failed_mitigations_to_avoid.length === 0 ? (
+                      <div style={{ fontSize: "11px", color: "#6272a4" }}>No recorded failed mitigations for this shift.</div>
+                    ) : (
+                      <div className="evidence-stack">
+                        {handoverReport.failed_mitigations_to_avoid.map((mitigation, idx) => (
+                          <div className="evidence-row" key={idx} style={{ borderColor: "rgba(255, 184, 108, 0.2)" }}>
+                            <span className="evidence-tag" style={{ background: "rgba(255, 184, 108, 0.2)", color: "#ffb86c" }}>AVOID</span>
+                            <div>
+                              <span style={{ color: "#f8f8f2", fontSize: "12px", display: "block" }}>Action: {mitigation.failed_action} → Result: {mitigation.observed_result}</span>
+                              {mitigation.unresolved_reason && <small style={{ color: "#ffb86c", fontSize: "10px" }}>Reason: {mitigation.unresolved_reason}</small>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <h4 style={{ fontSize: "12px", color: "#79edbe", margin: "0 0 6px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                      Active Operational Recommendations ({handoverReport.operational_rules_active.length})
+                    </h4>
+                    {handoverReport.operational_rules_active.length === 0 ? (
+                      <div style={{ fontSize: "11px", color: "#6272a4" }}>Standard facility procedures apply.</div>
+                    ) : (
+                      <div className="evidence-stack">
+                        {handoverReport.operational_rules_active.map((rec, idx) => (
+                          <div className="evidence-row" key={idx} style={{ borderColor: "rgba(121, 237, 190, 0.2)" }}>
+                            <span className="evidence-tag" style={{ background: "rgba(121, 237, 190, 0.2)", color: "#79edbe" }}>ACTIVE</span>
+                            <div>
+                              <span style={{ color: "#f8f8f2", fontSize: "12px", display: "block" }}>{rec.operational_rule}</span>
+                              {rec.location && <small style={{ color: "#8eaee1", fontSize: "10px", fontFamily: "IBM Plex Mono, monospace" }}>Sector: {rec.location}</small>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ marginTop: "14px", paddingTop: "10px", borderTop: "1px solid rgba(140, 175, 225, 0.15)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: "10px", color: "#6272a4", fontFamily: "IBM Plex Mono, monospace" }}>
+                    GENERATED: {new Date(handoverReport.generated_at).toLocaleString()} · SIBYL OPERATIONAL REPORT
+                  </span>
+                  <Button onClick={() => setHandoverOpen(false)} style={{ fontSize: "11px", height: "28px" }}>
+                    Dismiss Brief
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ color: "#ff8b8b", fontSize: "12px" }}>Failed to load handover report.</div>
+            )}
+          </div>
         </div>
       )}
     </div>

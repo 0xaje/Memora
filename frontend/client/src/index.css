@@ -159,4 +159,43 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .provenance-step--active { border-color: #79edbe; background: rgba(121, 237, 190, .08); }
 .raw-json-panel { margin-top: 14px; padding: 12px; background: #020c24; border: 1px solid rgba(204, 226, 255, .2); font-family: "IBM Plex Mono", monospace; font-size: 11px; color: #a9c4ee; overflow-x: auto; max-height: 320px; }
 
+/* Phase 6 Voice & Handover Styles */
+.pulse-recording {
+  animation: pulse-red 1.5s infinite;
+  border-color: #ff6b6b !important;
+  color: #ff6b6b !important;
+  background: rgba(255, 107, 107, 0.15) !important;
+}
+
+@keyframes pulse-red {
+  0% { box-shadow: 0 0 0 0 rgba(255, 107, 107, 0.7); }
+  70% { box-shadow: 0 0 0 8px rgba(255, 107, 107, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 107, 107, 0); }
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(1, 10, 30, 0.85);
+  backdrop-filter: blur(6px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal-content {
+  background: #041a4a;
+  border: 1px solid rgba(204, 226, 255, 0.3);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8);
+  width: 100%;
+  max-width: 720px;
+  max-height: 85vh;
+  overflow-y: auto;
+  border-radius: 4px;
+  padding: 24px;
+}
+
+
 
