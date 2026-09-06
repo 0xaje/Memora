@@ -16,7 +16,39 @@ describe("Memora live UI state copy", () => {
     expect(renderToStaticMarkup(<AnalysisOutput analysis={null} state={{ status: "unavailable", message: "Memora backend is unreachable." }} />)).toContain("Memora backend is unreachable.");
     expect(renderToStaticMarkup(<AnalysisOutput analysis={null} state={{ status: "error", message: "Validation failed." }} />)).toContain("Validation failed.");
     expect(getAnalysisStateCopy({ status: "success" })).toBe("Backend analysis received");
-    expect(renderToStaticMarkup(<AnalysisOutput analysis={{ incident: { incident_id: "INC-TEST", summary: "Backend incident response" }, baseline: { risk: "MEDIUM", recommendation: "MONITOR_AND_VERIFY" }, decision: { risk: "HIGH", recommendation: "ESCALATE_TO_SUPERVISOR" }, decision_changed: true, why_decision_changed: "Backend-provided rationale" }} state={{ status: "success" }} />)).toContain("MEMORY CHANGED THIS DECISION");
+    
+    // With decision changed:
+    const htmlWithChange = renderToStaticMarkup(
+      <AnalysisOutput
+        analysis={{
+          incident: { incident_id: "INC-TEST", summary: "Backend incident response" },
+          baseline: { risk: "MEDIUM", recommendation: "MONITOR_AND_VERIFY" },
+          decision: { risk: "HIGH", recommendation: "ESCALATE_TO_SUPERVISOR" },
+          decision_changed: true,
+          why_decision_changed: "Backend-provided rationale",
+          memory: { found: true, count: 1, records: [{ id: "REC-01", category: "incident", summary: "Previous vehicle incident" }] },
+        }}
+        state={{ status: "success" }}
+      />
+    );
+    expect(htmlWithChange).toContain("MEMORY CHANGED THIS DECISION");
+    expect(htmlWithChange).toContain("Previous vehicle incident");
+    expect(htmlWithChange).toContain("Backend-provided rationale");
+
+    // Without decision change:
+    const htmlUnchanged = renderToStaticMarkup(
+      <AnalysisOutput
+        analysis={{
+          incident: { incident_id: "INC-TEST-2", summary: "Clean baseline incident" },
+          baseline: { risk: "MEDIUM", recommendation: "MONITOR_AND_VERIFY" },
+          decision: { risk: "MEDIUM", recommendation: "MONITOR_AND_VERIFY" },
+          decision_changed: false,
+        }}
+        state={{ status: "success" }}
+      />
+    );
+    expect(htmlUnchanged).not.toContain("MEMORY CHANGED THIS DECISION");
+    expect(htmlUnchanged).toContain("Clean baseline incident");
   });
 
   it("distinguishes real memory search states", () => {
