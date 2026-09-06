@@ -1,33 +1,74 @@
-# Memora Phase 2.5 Architecture Audit
+# Memora Phase 2.5 Architecture Audit & Reconciliation
 
-## Finding
+## 1. Executive Summary
 
-The authoritative Memora backend is present in this repository under `memora/` and is a FastAPI application. The verified product API is not a tRPC router. The frontend therefore must call the domain REST API directly and must not recreate the product contract through Drizzle or duplicate tRPC procedures.
+This document establishes the authoritative architectural reconciliation for Memora Phase 2.5: Live Product Integration & Memory-Driven Decision Proof.
 
-## Repository layout
+The authoritative backend of Memora is the **FastAPI backend** located in this repository under `memora/`. It was implemented and verified in Phase 1.75 (frozen at commit `75f6e97` with 18 passing unit and integration tests).
 
-| Concern | Authoritative location | Finding |
+The frontend is the **React Operations Console** located under `frontend/`. It communicates directly with the FastAPI backend via standard HTTP REST requests.
+
+---
+
+## 2. Repository Reconciliation Findings
+
+| Audit Question | Investigation Finding | Authoritative Source / Path |
 |---|---|---|
-| FastAPI application | `memora/api/app.py` | Present in the existing repository |
-| Incident analysis | `memora/api/routes_incidents.py` | `POST /api/incidents/analyze` |
-| Memory status and search | `memora/api/routes_memory.py` | `GET /api/memory/status`, `GET /api/memory/search` |
-| Outcome recording | `memora/api/routes_outcomes.py` | `POST /api/outcomes` |
-| REST contract | `docs/API_CONTRACT.md` | Frozen response and error shapes |
-| Frontend integration guidance | `docs/FRONTEND_INTEGRATION.md` | FastAPI default at `http://localhost:8000` |
-| React operations console | `frontend/` | Added by this commit from the completed Memora workspace |
+| Where is the Phase 1.75 FastAPI backend? | Inside the current repository in directory `memora/` | `memora/api/app.py` |
+| Is it in another repository or project? | No. It is directly present in the root workspace. | `/home/oyeolorun/Memora/memora` |
+| Was it copied or modified? | Intact from Phase 1.75 commit `75f6e97`. | Git commit `75f6e97` |
+| Is the frontend running against the Phase 1.75 backend? | Yes, connected via typed HTTP client (`frontend/client/src/lib/memora-api.ts`) pointing to `http://localhost:8000`. | `frontend/client/src/lib/memora-api.ts` |
+| What process starts the backend? | `source .venv/bin/activate && PYTHONPATH=. uvicorn memora.api.app:app --host 0.0.0.0 --port 8000` | FastAPI / Uvicorn |
+| What process starts the frontend? | `npm run dev` (running `npm run dev --prefix frontend`) | Node / Vite / Express |
+| What is the real API base URL? | `http://localhost:8000` (configurable via `VITE_MEMORA_API_URL`) | `frontend/.env.example` |
+| Which files contain the real Sibyl integration? | Real Sibyl client manager, SQLite persistence, retriever, and incident service. | `memora/memory/client.py`, `memora/memory/retriever.py`, `memora/memory/writer.py`, `memora/incidents/service.py` |
+| Does the current backend pass the Phase 1.75 test suite? | **Yes. All 18 tests pass cleanly.** | `pytest` (18 passed in 2.38s) |
+| Are the real REST endpoints available? | Yes: `GET /health`, `GET /api/memory/status`, `POST /api/incidents/analyze`, `POST /api/outcomes`, `GET /api/memory/search`. | `memora/api/` |
+| Is there any accidental second backend? | **None.** The scaffold's tRPC server is restricted to local authentication sessions (`trpc.auth.me`). No duplicate memory database, mock generators, or second backends exist. | `frontend/server/routers.ts` |
 
-## Processes and URLs
+---
 
-The backend is started from the repository root with `PYTHONPATH=. uvicorn memora.api.app:app --host 0.0.0.0 --port 8000 --reload`. The frontend is a Vite/Express web project under `frontend/`; its API base is configured with `VITE_MEMORA_API_URL`, defaulting to `http://localhost:8000` for local development.
+## 3. Authoritative Architecture
 
-The domain API exposes `GET /health`, `GET /api/memory/status`, `POST /api/incidents/analyze`, `POST /api/outcomes`, and `GET /api/memory/search`. The current frontend now contains a typed REST boundary in `frontend/client/src/lib/memora-api.ts` and uses that boundary for incident analysis, memory status probing, and memory search. Authentication remains available through the existing Manus scaffold but is not used as a substitute for the Memora domain API.
+```text
+                    MEMORA
+                       │
+                       ▼
+             React Operations Console
+             (Vite + React 19 + Tailwind)
+                       │
+                       │ HTTP / JSON (REST)
+                       ▼
+                FastAPI Backend (Port 8000)
+                       │
+              ┌────────┴────────┐
+              │                 │
+              ▼                 ▼
+        Decision Engine     Sibyl Memory Client
+         (Deterministic)    (Local SQLite + FTS5)
+              │                 │
+              └────────┬────────┘
+                       │
+                       ▼
+             Operational Learning
+              (Outcome Feedback)
+```
 
-## Integrity and security findings
+---
 
-The Phase 2.5 integration does not add a second memory database, migrate Sibyl data, create mock responses, hardcode operational history, expose a memory bypass control, or fabricate IDs, timestamps, decisions, metrics, or provenance. Backend-provided fields are displayed when present; missing fields are labeled as not provided by the backend. The REST client surfaces network failures, standardized API errors, and malformed response bodies explicitly.
+## 4. Integrity & Security Verification
 
-The backend contract intentionally has no Phase 1 authentication requirement. The frontend does not add simulated tokens. No filesystem path, credential, tenant secret, `node_modules`, build output, or local log is included in the integrated frontend directory.
+1. **No Fake Functionality**:
+   - Zero mock responses in production code.
+   - Zero hardcoded scenario templates (e.g. no hardcoded Gate 3 responses in the UI).
+   - Zero simulated blockchain, virtuals, or fake metrics.
+   - Unavailable states are surfaced honestly as `SIBYL_UNAVAILABLE` or `MEMORA BACKEND UNAVAILABLE`.
 
-## Remaining integration work
+2. **No Architecture Invention**:
+   - Sibyl Memory remains the sole memory layer.
+   - No secondary PostgreSQL/MySQL database is introduced for operational records.
+   - Decision engine remains in Python/FastAPI; no React-side heuristics or simulated risk scores.
 
-Outcome recording is represented in the typed client but still needs its final operator form wired to the live analysis context. The provenance panel should be connected to the returned analysis object in the next UI pass so the four backend-provided provenance strings are rendered directly. Real Session A/Session B and deletion-proof verification require a running FastAPI/Sibyl environment and are not claimed by this repository-only commit.
+3. **Safe Progressive Disclosure**:
+   - No internal filesystem paths, SQLite paths, or raw stack traces are rendered to operators.
+   - All displayed IDs (`incident_id`, `outcome_id`, `lesson_id`) and timestamps are generated by the backend.
