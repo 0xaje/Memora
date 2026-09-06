@@ -31,7 +31,12 @@ from memora.incidents.models import (
     MemorySummary,
     OutcomeResponse,
     RiskLevel,
-    RecommendationType
+    RecommendationType,
+    EvidenceType,
+    EvidenceItem,
+    FailedMitigation,
+    ActionableLesson,
+    HistoricalPatternDetail
 )
 from memora.intelligence.extractor import FactExtractor
 from memora.intelligence.baseline import BaselineEngine
@@ -234,6 +239,10 @@ class IncidentService:
             failed_prior_actions=pattern.failed_prior_recommendations,
             verified_mitigations=pattern.verified_mitigations,
             applicable_lessons=pattern.applicable_lessons,
+            failed_mitigation_details=pattern.failed_mitigation_details,
+            actionable_lessons_details=pattern.actionable_lessons_details,
+            patterns_detected=pattern.patterns_detected,
+            is_resolved_precedent=pattern.is_resolved_precedent,
             summary=pattern.summary
         )
 
@@ -255,6 +264,74 @@ class IncidentService:
             decision_shift=explanation.why_decision_changed
         )
 
+        # 12. Build structured evidence chain
+        evidence_chain: List[EvidenceItem] = []
+        evidence_chain.append(EvidenceItem(
+            source="current_observation",
+            type=EvidenceType.CURRENT_FACT,
+            confidence=1.0,
+            entity_or_location=facts.location,
+            supporting_record_id=facts.incident_id,
+            text=f"Observed at {facts.location}: '{facts.summary}'"
+        ))
+        if facts.approximate_time:
+            evidence_chain.append(EvidenceItem(
+                source="current_observation",
+                type=EvidenceType.CURRENT_FACT,
+                confidence=0.95,
+                text=f"Approximate time of observation: {facts.approximate_time}"
+            ))
+        if facts.entities_involved:
+            evidence_chain.append(EvidenceItem(
+                source="current_observation",
+                type=EvidenceType.CURRENT_FACT,
+                confidence=1.0,
+                text=f"Identified entities: {', '.join(facts.entities_involved)}"
+            ))
+
+        for rec in ui_records[:5]:
+            evidence_chain.append(EvidenceItem(
+                source="sibyl_memory",
+                type=EvidenceType.HISTORICAL_FACT,
+                confidence=1.0,
+                entity_or_location=rec.location,
+                supporting_record_id=rec.id,
+                text=f"[{rec.category.upper()}] {rec.summary} (Status: {rec.status})"
+            ))
+
+        if pattern.is_recurrent:
+            evidence_chain.append(EvidenceItem(
+                source="inference_engine",
+                type=EvidenceType.INFERENCE,
+                confidence=0.92,
+                entity_or_location=facts.location,
+                text=f"Pattern detected: {pattern.recurrent_count} prior incident(s) at {facts.location}"
+            ))
+
+        if pattern.has_prior_failed_outcome and pattern.failed_mitigation_details:
+            fm = pattern.failed_mitigation_details[0]
+            evidence_chain.append(EvidenceItem(
+                source="inference_engine",
+                type=EvidenceType.INFERENCE,
+                confidence=0.90,
+                text=fm.current_implication
+            ))
+
+        for unk in facts.unknowns:
+            evidence_chain.append(EvidenceItem(
+                source="evidence_validator",
+                type=EvidenceType.UNKNOWN,
+                confidence=1.0,
+                text=unk
+            ))
+
+        evidence_chain.append(EvidenceItem(
+            source="decision_engine",
+            type=EvidenceType.RECOMMENDATION,
+            confidence=memory_assessment.confidence,
+            text=f"{memory_assessment.risk.value}: {memory_assessment.recommendation.value}"
+        ))
+
         return IncidentAnalysisResult(
             incident=facts,
             session=SessionContext(id=sid, is_fresh=is_fresh_session),
@@ -269,7 +346,12 @@ class IncidentService:
             memory=memory_summary,
             inference=inference_summary,
             why_decision_changed=explanation.why_decision_changed,
-            provenance=provenance
+            provenance=provenance,
+            evidence_chain=evidence_chain,
+            failed_mitigations=pattern.failed_mitigation_details,
+            actionable_lessons=pattern.actionable_lessons_details,
+            patterns_detected=pattern.patterns_detected,
+            unknowns=facts.unknowns
         )
 
     def record_outcome(self, request: OutcomeCreate) -> OutcomeResponse:
