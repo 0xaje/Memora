@@ -56,6 +56,36 @@ export type MemoryRecord = {
   successful_mitigation?: string | null;
 };
 
+export type EvidenceItem = {
+  source: string;
+  type: "CURRENT_FACT" | "HISTORICAL_FACT" | "INFERENCE" | "RECOMMENDATION" | "UNKNOWN";
+  confidence: number;
+  entity_or_location?: string;
+  supporting_record_id?: string;
+  text: string;
+};
+
+export type FailedMitigation = {
+  prior_action: string;
+  observed_result: string;
+  failure_diagnosis: string;
+  current_implication: string;
+};
+
+export type ActionableLesson = {
+  lesson_id: string;
+  historical_rule: string;
+  current_implication: string;
+  recommended_adjustment: string;
+};
+
+export type HistoricalPatternDetail = {
+  pattern_type: string;
+  title: string;
+  description: string;
+  supporting_record_ids?: string[];
+};
+
 export type IncidentAnalysis = {
   incident?: {
     incident_id?: string;
@@ -65,6 +95,10 @@ export type IncidentAnalysis = {
     indicators?: string[];
     entities_involved?: string[];
     timestamp?: string;
+    approximate_time?: string;
+    duration?: string;
+    reported_by?: string;
+    unknowns?: string[];
   };
   session?: { id?: string; is_fresh?: boolean };
   baseline?: { risk?: string; recommendation?: string; confidence?: number; factors?: string[] };
@@ -81,10 +115,19 @@ export type IncidentAnalysis = {
     failed_prior_actions?: string[];
     verified_mitigations?: string[];
     applicable_lessons?: string[];
+    failed_mitigation_details?: FailedMitigation[];
+    actionable_lessons_details?: ActionableLesson[];
+    patterns_detected?: HistoricalPatternDetail[];
+    is_resolved_precedent?: boolean;
     summary?: string;
   };
   why_decision_changed?: string;
   provenance?: { facts?: string; retrieval?: string; inference?: string; decision_shift?: string };
+  evidence_chain?: EvidenceItem[];
+  failed_mitigations?: FailedMitigation[];
+  actionable_lessons?: ActionableLesson[];
+  patterns_detected?: HistoricalPatternDetail[];
+  unknowns?: string[];
 };
 
 export type MemorySearchResponse = {

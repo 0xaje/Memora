@@ -20,6 +20,7 @@ import {
   Database,
   FileSearch,
   Grid2X2,
+  HelpCircle,
   History,
   Info,
   LockKeyhole,
@@ -248,6 +249,26 @@ export function AnalysisOutput({ analysis, state }: { analysis: IncidentAnalysis
         <span>{analysis.incident?.timestamp ? new Date(analysis.incident.timestamp).toLocaleString() : "Timestamp not provided by backend"}</span>
       </div>
       <h3>{analysis.incident?.summary || "Incident summary not provided by backend"}</h3>
+      {(analysis.incident?.approximate_time || analysis.incident?.duration || analysis.incident?.reported_by) && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", margin: "6px 0 12px", color: "#8eaee1", fontSize: "11px", fontFamily: "IBM Plex Mono, monospace" }}>
+          {analysis.incident?.approximate_time && <span>TIME: {analysis.incident.approximate_time}</span>}
+          {analysis.incident?.duration && <span>DURATION: {analysis.incident.duration}</span>}
+          {analysis.incident?.reported_by && <span>REPORTER: {analysis.incident.reported_by}</span>}
+        </div>
+      )}
+      {((analysis.unknowns && analysis.unknowns.length > 0) || (analysis.incident?.unknowns && analysis.incident.unknowns.length > 0)) && (
+        <div style={{ margin: "10px 0 14px" }}>
+          <span className="micro-label" style={{ display: "block", marginBottom: "6px" }}>OPERATIONAL UNKNOWNS IDENTIFIED</span>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+            {(analysis.unknowns || analysis.incident?.unknowns || []).map((u, i) => (
+              <span key={i} className="unknown-chip">
+                <HelpCircle size={11} />
+                {u}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="result-grid">
         <div>
           <span className="micro-label">BASELINE</span>
@@ -378,6 +399,53 @@ function DecisionSection({ analysis, state }: { analysis: IncidentAnalysis | nul
             <span>REASON / SHIFT</span>
             <strong>{analysis.why_decision_changed || analysis.decision?.escalation_reason || "Aligned with baseline"}</strong>
           </div>
+        </div>
+      )}
+
+      {analysis.failed_mitigations && analysis.failed_mitigations.length > 0 && (
+        <div style={{ marginTop: "16px" }}>
+          <span className="micro-label" style={{ color: "#ffb86c", display: "block", marginBottom: "8px" }}>
+            FAILED MITIGATION DIAGNOSIS ({analysis.failed_mitigations.length})
+          </span>
+          {analysis.failed_mitigations.map((fm, idx) => (
+            <div key={idx} className="intelligence-card">
+              <div className="intelligence-card__header">
+                <strong>Prior Action Attempted: {fm.prior_action}</strong>
+                <span className="evidence-tag evidence-tag--warn">FAILED MITIGATION</span>
+              </div>
+              <div className="intelligence-card__diag">
+                <div><strong>Observed Result:</strong> {fm.observed_result}</div>
+                <div><strong>Diagnosis:</strong> {fm.failure_diagnosis}</div>
+              </div>
+              <div className="intelligence-card__impl">
+                <span>OPERATIONAL IMPLICATION</span>
+                {fm.current_implication}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {analysis.actionable_lessons && analysis.actionable_lessons.length > 0 && (
+        <div style={{ marginTop: "16px" }}>
+          <span className="micro-label" style={{ color: "#79edbe", display: "block", marginBottom: "8px" }}>
+            ACTIONABLE OPERATIONAL LESSONS ({analysis.actionable_lessons.length})
+          </span>
+          {analysis.actionable_lessons.map((lesson, idx) => (
+            <div key={idx} className="intelligence-card intelligence-card--lesson">
+              <div className="intelligence-card__header">
+                <strong>Directive: {lesson.historical_rule}</strong>
+                <span className="evidence-tag evidence-tag--ok">{lesson.lesson_id}</span>
+              </div>
+              <div className="intelligence-card__diag" style={{ color: "#b5ccf2" }}>
+                <strong>Operational Context:</strong> {lesson.current_implication}
+              </div>
+              <div className="intelligence-card__impl" style={{ borderLeftColor: "#79edbe", background: "rgba(121, 237, 190, 0.1)" }}>
+                <span style={{ color: "#79edbe" }}>ADJUSTMENT REQUIRED</span>
+                {lesson.recommended_adjustment}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -666,29 +734,76 @@ function Workspace({
           </SectionKicker>
           {live.analysis ? (
             <div className="evidence-stack">
-              <div className="evidence-row">
-                <span className="evidence-tag evidence-tag--fact">FACT</span>
-                <span>{live.analysis.provenance?.facts || live.analysis.incident?.summary || "Extracted from operator input."}</span>
-              </div>
-              <div className="evidence-row">
-                <span className="evidence-tag evidence-tag--memory">MEMORY</span>
-                <span>{live.analysis.provenance?.retrieval || (live.analysis.memory?.found ? `${live.analysis.memory.count} matching record(s) retrieved from Sibyl.` : "No relevant operational history found.")}</span>
-              </div>
-              <div className="evidence-row">
-                <span className="evidence-tag evidence-tag--inference">INFERENCE</span>
-                <span>{live.analysis.inference?.summary || live.analysis.provenance?.inference || "Deterministic pattern evaluation complete."}</span>
-              </div>
-              {live.analysis.inference?.unresolved_history && (
-                <div className="evidence-row">
-                  <span className="evidence-tag evidence-tag--warn">UNRESOLVED</span>
-                  <span>Prior related incident history contains unresolved events ({live.analysis.inference.unresolved_incident_ids?.join(", ") || "prior incident"}).</span>
+              {live.analysis.patterns_detected && live.analysis.patterns_detected.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "10px" }}>
+                  {live.analysis.patterns_detected.map((p, idx) => (
+                    <div key={idx} className="pattern-badge" title={p.description}>
+                      <Activity size={12} />
+                      <span>{p.title || p.pattern_type}</span>
+                    </div>
+                  ))}
                 </div>
               )}
-              {Boolean(live.analysis.inference?.recurrence_count) && (
-                <div className="evidence-row">
-                  <span className="evidence-tag evidence-tag--warn">RECURRENCE</span>
-                  <span>Recurrence count: {live.analysis.inference?.recurrence_count} prior similar occurrence(s).</span>
-                </div>
+              {live.analysis.evidence_chain && live.analysis.evidence_chain.length > 0 ? (
+                live.analysis.evidence_chain.map((item, idx) => {
+                  let tagClass = "evidence-tag--inference";
+                  let label: string = item.type;
+                  if (item.type === "CURRENT_FACT") {
+                    tagClass = "evidence-tag--fact";
+                    label = "CURRENT FACT";
+                  } else if (item.type === "HISTORICAL_FACT") {
+                    tagClass = "evidence-tag--historical";
+                    label = "HISTORICAL FACT";
+                  } else if (item.type === "INFERENCE") {
+                    tagClass = "evidence-tag--inference";
+                    label = "INFERENCE";
+                  } else if (item.type === "UNKNOWN") {
+                    tagClass = "evidence-tag--unknown";
+                    label = "UNKNOWN";
+                  } else if (item.type === "RECOMMENDATION") {
+                    tagClass = "evidence-tag--decision";
+                    label = "RECOMMENDATION";
+                  }
+                  return (
+                    <div className="evidence-row" key={idx}>
+                      <span className={cn("evidence-tag", tagClass)}>{label}</span>
+                      <div>
+                        <span style={{ display: "block", color: "#ffffff" }}>{item.text}</span>
+                        <small style={{ color: "#8eaee1", fontSize: "10px", fontFamily: "IBM Plex Mono, monospace" }}>
+                          Source: {item.source} · Confidence: {Math.round(item.confidence * 100)}%
+                          {item.supporting_record_id ? ` · Ref: ${item.supporting_record_id}` : ""}
+                        </small>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <>
+                  <div className="evidence-row">
+                    <span className="evidence-tag evidence-tag--fact">FACT</span>
+                    <span>{live.analysis.provenance?.facts || live.analysis.incident?.summary || "Extracted from operator input."}</span>
+                  </div>
+                  <div className="evidence-row">
+                    <span className="evidence-tag evidence-tag--memory">MEMORY</span>
+                    <span>{live.analysis.provenance?.retrieval || (live.analysis.memory?.found ? `${live.analysis.memory.count} matching record(s) retrieved from Sibyl.` : "No relevant operational history found.")}</span>
+                  </div>
+                  <div className="evidence-row">
+                    <span className="evidence-tag evidence-tag--inference">INFERENCE</span>
+                    <span>{live.analysis.inference?.summary || live.analysis.provenance?.inference || "Deterministic pattern evaluation complete."}</span>
+                  </div>
+                  {live.analysis.inference?.unresolved_history && (
+                    <div className="evidence-row">
+                      <span className="evidence-tag evidence-tag--warn">UNRESOLVED</span>
+                      <span>Prior related incident history contains unresolved events ({live.analysis.inference.unresolved_incident_ids?.join(", ") || "prior incident"}).</span>
+                    </div>
+                  )}
+                  {Boolean(live.analysis.inference?.recurrence_count) && (
+                    <div className="evidence-row">
+                      <span className="evidence-tag evidence-tag--warn">RECURRENCE</span>
+                      <span>Recurrence count: {live.analysis.inference?.recurrence_count} prior similar occurrence(s).</span>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           ) : (
