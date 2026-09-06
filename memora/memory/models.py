@@ -55,6 +55,7 @@ class OutcomeMemory(BaseModel):
     observed_result: str = Field(..., description="What was observed after taking action")
     is_resolved: bool = Field(..., description="Whether the root threat was eliminated")
     unresolved_reason: Optional[str] = Field(None, description="Reason if still unresolved")
+    location: Optional[str] = Field(None, description="Location of incident associated with outcome")
     timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 

@@ -361,20 +361,6 @@ class IncidentService:
         logger.info("Recording outcome for incident: %s (resolved=%s)",
                     request.incident_id, request.is_resolved)
 
-        outcome_id = f"OUT-{uuid.uuid4().hex[:8].upper()}"
-
-        outcome = OutcomeMemory(
-            outcome_id=outcome_id,
-            incident_id=request.incident_id,
-            action_taken=request.action_taken,
-            observed_result=request.observed_result,
-            is_resolved=request.is_resolved,
-            unresolved_reason=request.unresolved_reason
-        )
-
-        # Write outcome to Sibyl
-        self.writer.write_outcome(outcome, tenant_id=request.tenant_id)
-
         client = self.manager.get_client(tenant_id=request.tenant_id)
         location = "Perimeter Facility"
         try:
@@ -383,6 +369,21 @@ class IncidentService:
                 location = parent_inc["body"].get("location", location)
         except Exception as e:
             logger.warning("Could not fetch parent incident %s for location: %s", request.incident_id, e)
+
+        outcome_id = f"OUT-{uuid.uuid4().hex[:8].upper()}"
+
+        outcome = OutcomeMemory(
+            outcome_id=outcome_id,
+            incident_id=request.incident_id,
+            action_taken=request.action_taken,
+            observed_result=request.observed_result,
+            is_resolved=request.is_resolved,
+            unresolved_reason=request.unresolved_reason,
+            location=location
+        )
+
+        # Write outcome to Sibyl
+        self.writer.write_outcome(outcome, tenant_id=request.tenant_id)
 
         lesson_id = None
         lesson_rule = None

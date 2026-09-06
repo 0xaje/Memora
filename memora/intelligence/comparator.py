@@ -153,6 +153,13 @@ class HistoricalComparator:
                     comparison.applicable_lessons.append(rule)
                 if prior_action:
                     failed_recs.append(prior_action)
+                    if not any(fm.prior_action == prior_action for fm in failed_mitigation_details):
+                        failed_mitigation_details.append(FailedMitigation(
+                            prior_action=prior_action,
+                            observed_result=rule or "Prior action failed to eliminate recurring hazard",
+                            failure_diagnosis=f"Prior operational action '{prior_action}' was documented as insufficient in institutional lesson {lesson_id}.",
+                            current_implication=f"Repeating '{prior_action}' is contraindicated at {facts.location}. Escalate to supervisor."
+                        ))
 
                 actionable_lessons.append(ActionableLesson(
                     lesson_id=lesson_id,
