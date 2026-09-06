@@ -209,3 +209,26 @@ class MemoryRetriever:
         except Exception as e:
             logger.error("Cross-tier search failed for '%s': %s", clean_query, e)
             raise SibylServiceError(f"Sibyl search failed: {e}") from e
+
+    def get_state(self, key: str, tenant_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves active working state from Sibyl's native HOT state tier.
+        """
+        client = self._get_client(tenant_id=tenant_id)
+        try:
+            return client.get_state(key=key)
+        except Exception as e:
+            logger.error("Failed to get state %s from Sibyl: %s", key, e)
+            raise SibylServiceError(f"Failed to get state from Sibyl: {e}") from e
+
+    def get_reference(self, key: str, tenant_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves operational protocol/SOP documents from Sibyl's native REFERENCE tier.
+        """
+        client = self._get_client(tenant_id=tenant_id)
+        try:
+            return client.get_reference(key=key)
+        except Exception as e:
+            logger.error("Failed to get reference %s from Sibyl: %s", key, e)
+            raise SibylServiceError(f"Failed to get reference from Sibyl: {e}") from e
+

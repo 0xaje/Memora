@@ -194,3 +194,37 @@ class MemoryWriter:
         except Exception as e:
             logger.error("Failed to write operational lesson %s to Sibyl: %s", name, e)
             raise SibylServiceError(f"Failed to persist operational lesson in Sibyl: {e}") from e
+
+    def set_state(self, key: str, body: Dict[str, Any], tenant_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Persists transient active session/patrol state into Sibyl's native HOT state tier.
+        """
+        client = self._get_client(tenant_id=tenant_id)
+        try:
+            return client.set_state(key=key, body=body)
+        except Exception as e:
+            logger.error("Failed to set state %s in Sibyl: %s", key, e)
+            raise SibylServiceError(f"Failed to set state in Sibyl: {e}") from e
+
+    def set_reference(self, key: str, body: Dict[str, Any], tenant_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Persists operational protocols/SOPs into Sibyl's native REFERENCE tier.
+        """
+        client = self._get_client(tenant_id=tenant_id)
+        try:
+            return client.set_reference(key=key, body=body)
+        except Exception as e:
+            logger.error("Failed to set reference %s in Sibyl: %s", key, e)
+            raise SibylServiceError(f"Failed to set reference in Sibyl: {e}") from e
+
+    def archive_entity(self, category: str, name: str, tenant_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Archives an entity into Sibyl's ARCHIVE tier (recoverable, kept out of active set).
+        """
+        client = self._get_client(tenant_id=tenant_id)
+        try:
+            return client.archive_entity(category=category, name=name)
+        except Exception as e:
+            logger.error("Failed to archive entity %s/%s in Sibyl: %s", category, name, e)
+            raise SibylServiceError(f"Failed to archive entity in Sibyl: {e}") from e
+

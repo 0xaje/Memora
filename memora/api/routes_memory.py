@@ -24,6 +24,8 @@ def memory_status(tenant_id: Optional[str] = None) -> Dict[str, Any]:
         entity_count = client.storage.count_rows("entities", tid)
         event_count = client.storage.count_rows("journal_events", tid)
         ref_count = client.storage.count_rows("reference_documents", tid)
+        state_count = client.storage.count_rows("state_documents", tid)
+        archive_count = client.storage.count_rows("archived_entities", tid)
         with client.storage.connection() as conn:
             size_bytes = client.storage.logical_size_bytes(conn)
 
@@ -36,7 +38,9 @@ def memory_status(tenant_id: Optional[str] = None) -> Dict[str, Any]:
             "counts": {
                 "entities_warm": entity_count,
                 "journal_cold": event_count,
-                "reference": ref_count
+                "reference": ref_count,
+                "state_hot": state_count,
+                "archived": archive_count,
             },
             "logical_size_bytes": size_bytes
         }
@@ -148,10 +152,11 @@ def set_tier(payload: Dict[str, str], tenant_id: Optional[str] = None) -> Dict[s
     Escalates or switches the operational Sibyl storage tier.
     """
     requested_tier = payload.get("tier", "free").strip().lower()
-    if requested_tier not in ("free", "pro", "enterprise"):
+    valid_tiers = ("free", "pro", "enterprise", "stake", "team", "lifetime")
+    if requested_tier not in valid_tiers:
         raise HTTPException(
             status_code=422,
-            detail={"code": "VALIDATION_ERROR", "message": "Tier must be 'free', 'pro', or 'enterprise'."}
+            detail={"code": "VALIDATION_ERROR", "message": f"Tier must be one of: {', '.join(valid_tiers)}."}
         )
     try:
         tid = tenant_id or sibyl_manager.tenant_id
@@ -168,3 +173,116 @@ def set_tier(payload: Dict[str, str], tenant_id: Optional[str] = None) -> Dict[s
             status_code=500,
             detail={"code": "TIER_UPDATE_ERROR", "message": str(e)}
         )
+
+
+@router.get("/state/{key}")
+def get_memory_state(key: str, tenant_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Retrieves transient active operational state from Sibyl's native HOT state tier.
+    """
+    try:
+        tid = tenant_id or sibyl_manager.tenant_id
+        client = sibyl_manager.get_client(tenant_id=tid)
+        state_doc = client.get_state(key=key)
+        if not state_doc:
+            raise HTTPException(status_code=404, detail={"code": "STATE_NOT_FOUND", "message": f"Key '{key}' not found in HOT state tier."})
+        return {"key": key, "tenant_id": tid, "state": state_doc}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail={"code": "STATE_ERROR", "message": str(e)})
+
+
+@router.post("/state/{key}")
+def set_memory_state(key: str, payload: Dict[str, Any], tenant_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Persists transient active operational state into Sibyl's native HOT state tier.
+    """
+    try:
+        tid = tenant_id or sibyl_manager.tenant_id
+        client = sibyl_manager.get_client(tenant_id=tid)
+        result = client.set_state(key=key, body=payload)
+        return {"status": "success", "key": key, "tenant_id": tid, "result": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail={"code": "STATE_ERROR", "message": str(e)})
+
+
+@router.get("/reference/{key}")
+def get_memory_reference(key: str, tenant_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Retrieves operational reference protocol document from Sibyl's native REFERENCE tier.
+    """
+    try:
+        tid = tenant_id or sibyl_manager.tenant_id
+        client = sibyl_manager.get_client(tenant_id=tid)
+        ref_doc = client.get_reference(key=key)
+        if not ref_doc:
+            raise HTTPException(status_code=404, detail={"code": "REFERENCE_NOT_FOUND", "message": f"Reference '{key}' not found."})
+        return {"key": key, "tenant_id": tid, "reference": ref_doc}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail={"code": "REFERENCE_ERROR", "message": str(e)})
+
+
+@router.post("/reference/{key}")
+def set_memory_reference(key: str, payload: Dict[str, Any], tenant_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Persists operational protocol document into Sibyl's native REFERENCE tier.
+    """
+    try:
+        tid = tenant_id or sibyl_manager.tenant_id
+        client = sibyl_manager.get_client(tenant_id=tid)
+        result = client.set_reference(key=key, body=payload)
+        return {"status": "success", "key": key, "tenant_id": tid, "result": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail={"code": "REFERENCE_ERROR", "message": str(e)})
+
+
+@router.post("/archive")
+def archive_memory_entity(payload: Dict[str, str], tenant_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Moves an entity into Sibyl's native ARCHIVE tier (recoverable, kept out of active set).
+    """
+    category = payload.get("category")
+    name = payload.get("name")
+    if not category or not name:
+        raise HTTPException(status_code=422, detail={"code": "VALIDATION_ERROR", "message": "Both 'category' and 'name' are required."})
+    try:
+        tid = tenant_id or sibyl_manager.tenant_id
+        client = sibyl_manager.get_client(tenant_id=tid)
+        result = client.archive_entity(category=category, name=name)
+        return {"status": "archived", "category": category, "name": name, "tenant_id": tid, "result": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail={"code": "ARCHIVE_ERROR", "message": str(e)})
+
+
+@router.get("/lint")
+def lint_memory(tenant_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Executes Sibyl's native memory linter (requires paid/staker tier).
+    Analyzes database size, tier counts, and memory health findings.
+    """
+    try:
+        tid = tenant_id or sibyl_manager.tenant_id
+        client = sibyl_manager.get_client(tenant_id=tid)
+        report = client.lint()
+        return {
+            "tenant_id": report.tenant_id,
+            "db_size_bytes": report.db_size_bytes,
+            "counts": report.counts,
+            "findings": report.findings,
+            "started_at": report.started_at,
+            "completed_at": report.completed_at
+        }
+    except Exception as e:
+        # If free tier, provide honest diagnostic message
+        if "requires a paid tier" in str(e):
+            return {
+                "tenant_id": tenant_id or sibyl_manager.tenant_id,
+                "tier": "free",
+                "linter_available": False,
+                "message": "Sibyl memory linter requires a paid or staker tier ('stake', 'team', 'enterprise'). Free tier retains full 5-tier local storage and FTS5 search."
+            }
+        raise HTTPException(status_code=500, detail={"code": "LINT_ERROR", "message": str(e)})
+

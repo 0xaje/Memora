@@ -131,3 +131,50 @@ def test_multi_tenant_site_partition_isolation(tmp_path):
     assert res_b.memory_assessment.risk.value == "MEDIUM"
 
     mgr.close()
+
+
+def test_all_five_sibyl_tiers_and_linter():
+    """Verify official Sibyl documentation alignment: 5 tiers + memory linter."""
+    from fastapi.testclient import TestClient
+    from memora.api.app import app
+
+    client = TestClient(app)
+
+    # 1. HOT state tier
+    res_set_state = client.post("/api/memory/state/active_shift_test", json={"patrol_leader": "Officer Vance", "status": "ON_PATROL"})
+    assert res_set_state.status_code == 200
+    res_get_state = client.get("/api/memory/state/active_shift_test")
+    assert res_get_state.status_code == 200
+    assert res_get_state.json()["state"]["body"]["patrol_leader"] == "Officer Vance"
+
+    # 2. REFERENCE tier
+    res_set_ref = client.post("/api/memory/reference/gate_lockdown_sop", json={"protocol": "Perimeter Lockdown SOP", "steps": ["Seal gate", "Alert dispatch"]})
+    assert res_set_ref.status_code == 200
+    res_get_ref = client.get("/api/memory/reference/gate_lockdown_sop")
+    assert res_get_ref.status_code == 200
+    assert "Perimeter Lockdown SOP" in res_get_ref.json()["reference"]["body"]
+
+    # 3. Memory status reflects all 5 tiers
+    res_status = client.get("/api/memory/status")
+    assert res_status.status_code == 200
+    counts = res_status.json()["counts"]
+    assert "entities_warm" in counts
+    assert "journal_cold" in counts
+    assert "reference" in counts
+    assert "state_hot" in counts
+    assert "archived" in counts
+
+    # 4. Memory linter on free vs stake tier
+    res_free_lint = client.get("/api/memory/lint")
+    assert res_free_lint.status_code == 200
+    assert res_free_lint.json()["linter_available"] is False
+
+    # Unlock via stake tier
+    client.post("/api/memory/tier", json={"tier": "stake"})
+    res_stake_lint = client.get("/api/memory/lint")
+    assert res_stake_lint.status_code == 200
+    assert "counts" in res_stake_lint.json()
+
+    # Reset back to free tier
+    client.post("/api/memory/tier", json={"tier": "free"})
+
